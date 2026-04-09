@@ -54,6 +54,9 @@ NC='\033[0m'
 
 mkdir -p "$LOG_DIR"
 
+# Source spec queue helpers
+source "$SCRIPT_DIR/lib/spec_queue.sh"
+
 # Check constitution for YOLO setting
 YOLO_ENABLED=true
 if [[ -f "$CONSTITUTION" ]]; then
@@ -270,14 +273,20 @@ fi
 # Get current branch
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
-# Check for work sources - count .md files in specs/
+# Check for work sources
 HAS_PLAN=false
 HAS_SPECS=false
 SPEC_COUNT=0
+INCOMPLETE_SPEC_COUNT=0
+FIRST_INCOMPLETE_SPEC=""
 [ -f "IMPLEMENTATION_PLAN.md" ] && HAS_PLAN=true
 if [ -d "specs" ]; then
-    SPEC_COUNT=$(find specs -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
+    SPEC_COUNT=$(count_root_specs "specs")
+    INCOMPLETE_SPEC_COUNT=$(count_incomplete_root_specs "specs")
     [ "$SPEC_COUNT" -gt 0 ] && HAS_SPECS=true
+    if [ "$INCOMPLETE_SPEC_COUNT" -gt 0 ]; then
+        FIRST_INCOMPLETE_SPEC=$(get_first_incomplete_root_spec "specs")
+    fi
 fi
 
 echo ""
@@ -299,11 +308,22 @@ else
     echo -e "  ${YELLOW}○${NC} IMPLEMENTATION_PLAN.md (not found, that's OK)"
 fi
 if [ "$HAS_SPECS" = true ]; then
-    echo -e "  ${GREEN}✓${NC} specs/ folder ($SPEC_COUNT specs)"
+    echo -e "  ${GREEN}✓${NC} specs/ folder ($SPEC_COUNT specs, $INCOMPLETE_SPEC_COUNT incomplete)"
+    if [ "$HAS_PLAN" = false ] && [ "$INCOMPLETE_SPEC_COUNT" -gt 0 ]; then
+        echo -e "    ${CYAN}Next incomplete:${NC} $FIRST_INCOMPLETE_SPEC"
+    fi
 else
     echo -e "  ${RED}✗${NC} specs/ folder (no .md files found)"
 fi
 echo ""
+
+# Exit early if all specs are complete and no plan
+if [ "$MODE" = "build" ] && [ "$HAS_PLAN" = false ] && [ "$HAS_SPECS" = true ] && [ "$INCOMPLETE_SPEC_COUNT" -eq 0 ]; then
+    echo -e "${GREEN}All $SPEC_COUNT specs are COMPLETE. Nothing to do.${NC}"
+    echo -e "${CYAN}To add more work, create a new spec in specs/ without 'Status: COMPLETE'.${NC}"
+    exit 0
+fi
+
 echo -e "${CYAN}The loop checks for <promise>DONE</promise> in each iteration.${NC}"
 echo -e "${CYAN}Agent must verify acceptance criteria before outputting it.${NC}"
 echo ""
