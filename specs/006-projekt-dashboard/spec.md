@@ -18,6 +18,8 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
 - As a user, ich will Spec-Dateien direkt im Browser öffnen und bearbeiten
 - As a user, ich will ein Terminal, wo ich mit der AI chatten kann
 - As a user, ich will dass das AI-Terminal den konfigurierten Provider verwendet (Wyna/DeepSeek)
+- As a user, ich will eine Idee eingeben und per Knopfdruck als Spec aufbereiten lassen
+- As a user, ich will pro Projekt einen eigenen Chat-Kontext
 
 ---
 
@@ -54,7 +56,7 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
 - [ ] Button "Neue Datei" erstellt eine neue Datei
 - [ ] Spec-Dateien haben einen "Als done markieren"-Button (setzt Tag)
 
-### FR-4: AI-Terminal
+### FR-4: AI-Terminal (pro Projekt)
 
 **Acceptance Criteria:**
 - [ ] Unterer Bereich: Terminal-ähnliches Chat-Fenster
@@ -64,9 +66,11 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
   - Base URL: aus Settings (Default: `http://100.85.99.127:9002/v1`)
   - Model: aus Settings (Default: `deepseek-v4-flash`)
   - API Key: aus Settings
-- [ ] Nachrichten werden im Chat-Verlauf gespeichert (pro Session)
+- [ ] Nachrichten werden im Chat-Verlauf gespeichert (pro Projekt)
 - [ ] Antworten werden gestreamt (SSE-ähnlich, zeichenweise)
 - [ ] System-Prompt kann im Terminal gesetzt werden (z.B. "Du hilfst mir Specs zu schreiben")
+- [ ] Jedes Projekt hat seinen eigenen Chat-Verlauf
+- [ ] Beim Wechsel des Projekts wird der Chat-Verlauf mitgenommen
 
 ### FR-5: API-Chat-Endpoint
 
@@ -85,6 +89,31 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
 - [ ] `/ralphi/` zeigt nach Login das Dashboard
 - [ ] Wenn kein Projekt ausgewählt: Projekt-Übersicht (aktuell)
 - [ ] Wenn ein Projekt ausgewählt: Projekt-Dashboard
+
+### FR-7: Gegenlesen-Button (Idea → Spec)
+
+**Acceptance Criteria:**
+- [ ] Im Dashboard gibt es einen "Idea→Spec"-Button
+- [ ] Klick öffnet ein Textfeld für die Idee (Rohtext)
+- [ ] Klick auf "Gegenlesen" sendet die Idee an die AI mit Prompt:
+  "Erstelle eine Ralph-Wiggum-Spec aus dieser Idee: Format mit Titel, Beschreibung, Acceptance Criteria, Completion Signal"
+- [ ] Die AI-Antwort wird als neue Spec-Datei gespeichert
+- [ ] Nach Erstellung: Spec wird im Editor geöffnet
+- [ ] User kann die Spec weiter bearbeiten
+- [ ] Spec kann mit einem Haken (Checkbox) als "ready/done" markiert werden
+
+### FR-8: Layout-Fix (responsive Dashboard)
+
+**Acceptance Criteria:**
+- [ ] Dashboard-Layout ist responsive
+  - Desktop (≥1024px): 3 Spalten (Storyboard | Editor | Sidebar)
+  - Tablet (768-1023px): 2 Spalten (Storyboard+Editor gestapelt | Sidebar)
+  - Mobile (<768px): 1 Spalte (alles untereinander)
+- [ ] Kanban-Board auf Mobile: 3 Spalten bleiben, aber schmaler
+- [ ] Terminal ist auf Mobile standardmässig eingeklappt
+- [ ] Editor auf Mobile: File-Browser und Editor untereinander (nicht nebeneinander)
+- [ ] Kein horizontaler Overflow
+- [ ] Buttons sind auf Mobile full-width
 
 ---
 
@@ -108,12 +137,12 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
 
 ### Implementation Checklist
 
-- [ ] Backend: Chat-API (`POST /api/chat` mit SSE-Streaming)
-- [ ] Backend: File-Editor API (Dateien lesen/schreiben im Projekt)
-- [ ] Frontend: Dashboard-Layout (3 Spalten + Terminal unten)
-- [ ] Frontend: Storyboard (Kanban mit Offen/Arbeit/Fertig)
-- [ ] Frontend: File-Editor mit Datei-Browser
-- [ ] Frontend: AI-Terminal (Chat-Fenster)
+- [ ] Backend: Chat-API mit Projekt-Kontext (projektbezogener Chat)
+- [ ] Backend: Idea→Spec Endpoint (AI generiert Spec aus Idee)
+- [ ] Frontend: Dashboard-Layout repariert (responsive, 3/2/1 Spalten)
+- [ ] Frontend: "Idea→Spec"-Button mit Textfeld
+- [ ] Frontend: "Ready"-Checkbox pro Spec
+- [ ] Frontend: Pro-Projekt-Chat (Chat-Verlauf pro Projekt)
 - [ ] Integration: Terminal verwendet konfigurierten Provider
 - [ ] Docker-Neubau und Deployment
 
@@ -125,17 +154,23 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
 
 #### Functional Verification
 - [ ] `POST /api/chat` streamt eine Antwort
+- [ ] `POST /api/chat` akzeptiert `projectId` für Projekt-Kontext
+- [ ] `POST /api/specs/from-idea` generiert Spec aus Idee
 - [ ] `/ralphi/projects/{id}` zeigt das Dashboard
+- [ ] Dashboard-Layout ist responsive (Desktop 3, Tablet 2, Mobile 1 Spalte)
+- [ ] Idea→Spec-Button funktioniert
 - [ ] Story kann erstellt und verschoben werden
 - [ ] Datei kann geöffnet und bearbeitet werden
 - [ ] Terminal zeigt Chat-Nachrichten an
 - [ ] Terminal verwendet Provider aus Settings
+- [ ] Chat-Verlauf ist pro Projekt getrennt
 
 #### Visual Verification
 - [ ] Dashboard-Layout ist sauber (3 Spalten + Terminal)
 - [ ] Terminal ist einklappbar
-- [ ] Mobile-Ansicht funktioniert
+- [ ] Mobile-Ansicht funktioniert (kein Overflow, sauberes Stacking)
 - [ ] Editor ist monospace und lesbar
+- [ ] Idea→Spec-Button ist sichtbar und verständlich
 
 ### Iteration Instructions
 
@@ -151,4 +186,4 @@ Wenn etwas fehlschlägt:
 ---
 
 ## Status: PENDING
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->
