@@ -14,8 +14,27 @@ const PROXY_CADDYFILE = path.join(VIBES_ROOT, "vibes-proxy", "Caddyfile");
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(APP_ROOT, "data"));
 const IMPORTED_FILE = path.join(DATA_DIR, "imported-projects.json");
 const LOOPS_FILE = path.join(DATA_DIR, "loops.json");
+const RALPH_PROJECT_ROOT = path.resolve(
+  process.env.RALPH_PROJECT_ROOT ||
+    (fs.existsSync(path.join(VIBES_ROOT, "ralph")) ? path.join(VIBES_ROOT, "ralph") : APP_ROOT),
+);
+const SPECS_ROOT = path.resolve(process.env.SPECS_ROOT || path.join(RALPH_PROJECT_ROOT, "specs"));
+const SPEC_TEMPLATE_FILE = path.resolve(
+  process.env.SPEC_TEMPLATE_FILE || path.join(RALPH_PROJECT_ROOT, "templates", "spec-template.md"),
+);
 const LOOP_TIMEOUT_MS = Number.parseInt(process.env.LOOP_TIMEOUT_MS || `${24 * 60 * 60 * 1000}`, 10);
 const LOOP_SCRIPT_CANDIDATES = ["scripts/ralph-loop-codex.sh", "scripts/ralph-loop.sh"];
+const STATUS_TAGS = new Set(["pending", "running", "done"]);
+const SPEC_STATUS_TO_HEADING = {
+  pending: "PENDING",
+  running: "RUNNING",
+  done: "COMPLETE",
+};
+const SPEC_HEADING_TO_STATUS = {
+  PENDING: "pending",
+  RUNNING: "running",
+  COMPLETE: "done",
+};
 
 const STATUS_ORDER = ["Aktiv", "Archiv", "Referenz"];
 const STATIC_FILES = new Map([
@@ -61,6 +80,33 @@ function sendError(res, status, message) {
   sendJson(res, status, { message });
 }
 
+async function readJsonBody(req) {
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 1024 * 1024) {
+      const error = new Error("Request body too large");
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+
+  if (!chunks.length) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    const error = new Error("Invalid JSON body");
+    error.status = 400;
+    throw error;
+  }
+}
+
 async function pathExists(targetPath) {
   try {
     await fsp.access(targetPath);
@@ -70,9 +116,13 @@ async function pathExists(targetPath) {
   }
 }
 
-function isInsideVibesRoot(targetPath) {
-  const relative = path.relative(VIBES_ROOT, targetPath);
+function isInsideDirectory(rootPath, targetPath) {
+  const relative = path.relative(rootPath, targetPath);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isInsideVibesRoot(targetPath) {
+  return isInsideDirectory(VIBES_ROOT, targetPath);
 }
 
 function projectPathFor(directoryName, status) {
@@ -262,6 +312,550 @@ async function readTextIfExists(filePath) {
     return await fsp.readFile(filePath, "utf8");
   } catch {
     return "";
+  }
+}
+
+function validationError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function normalizeTag(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function splitTags(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap(splitTags);
+  }
+  return String(value || "")
+    .split(",")
+    .map(normalizeTag)
+    .filter(Boolean);
+}
+
+function statusFromTag(tag) {
+  return STATUS_TAGS.has(tag) ? tag : "";
+}
+
+function statusFromHeading(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return SPEC_HEADING_TO_STATUS[normalized] || "";
+}
+
+function specStatusFromTags(tags) {
+  return tags.map(statusFromTag).find(Boolean) || "";
+}
+
+function normalizeSpecTags(tags, preferredStatus = "pending") {
+  const cleanTags = splitTags(tags);
+  const status = statusFromTag(preferredStatus) || specStatusFromTags(cleanTags) || "pending";
+  const tagSet = new Set(cleanTags.filter((tag) => !STATUS_TAGS.has(tag)));
+  const ordered = [status, ...[...tagSet].sort((a, b) => a.localeCompare(b))];
+  return ordered;
+}
+
+function specStatusHeading(status) {
+  return SPEC_STATUS_TO_HEADING[statusFromTag(status) || "pending"];
+}
+
+function cleanSpecTitle(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanSpecDescription(value) {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+}
+
+function cleanMetadataValue(value) {
+  return String(value || "")
+    .replace(/-->/g, "--\\>")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function slugifySpec(value) {
+  const slug = String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "spec";
+}
+
+function extractSpecMetadata(raw) {
+  const metadata = {};
+  const pattern = /^<!--\s*([A-Z_]+):\s*([^\n]*?)\s*-->\s*$/gm;
+  let match = pattern.exec(raw);
+  while (match) {
+    metadata[match[1]] = match[2].trim();
+    match = pattern.exec(raw);
+  }
+  return metadata;
+}
+
+function extractSpecTitle(raw, fallbackId) {
+  const titleMatch = raw.match(/^#\s+Specification:\s*(.+?)\s*$/m);
+  if (titleMatch?.[1]) {
+    return cleanSpecTitle(titleMatch[1]);
+  }
+
+  const featureMatch = raw.match(/^##\s+Feature:\s*(.+?)\s*$/m);
+  if (featureMatch?.[1]) {
+    return cleanSpecTitle(featureMatch[1]);
+  }
+
+  return cleanSpecTitle(fallbackId.replace(/^\d{3}-/, "").replace(/-/g, " "));
+}
+
+function extractSpecDescription(raw) {
+  const overviewMatch = raw.match(/###\s+Overview\s*\n([\s\S]*?)(?=\n###\s+|\n---\s*\n|\n##\s+|\n#\s+|$)/i);
+  if (!overviewMatch?.[1]) {
+    return "";
+  }
+  return cleanSpecDescription(overviewMatch[1]);
+}
+
+function extractSpecStatus(raw) {
+  const statusMatch = raw.match(/^##\s+Status:\s*([A-Z]+)\s*$/m);
+  return statusFromHeading(statusMatch?.[1]) || "pending";
+}
+
+function specFileHostPath(specFile) {
+  return isInsideDirectory(VIBES_ROOT, specFile) ? toHostPath(specFile) : specFile;
+}
+
+async function parseSpecFile(specFile, id, storageType) {
+  const [raw, stat] = await Promise.all([fsp.readFile(specFile, "utf8"), fsp.stat(specFile)]);
+  const metadata = extractSpecMetadata(raw);
+  const metadataTags = splitTags(metadata.TAGS || "");
+  const status = specStatusFromTags(metadataTags) || extractSpecStatus(raw);
+  const tags = normalizeSpecTags(metadataTags, status);
+  const createdAt = metadata.CREATED_AT || stat.birthtime.toISOString();
+  const updatedAt = metadata.UPDATED_AT || stat.mtime.toISOString();
+
+  return {
+    id,
+    title: extractSpecTitle(raw, id),
+    description: extractSpecDescription(raw),
+    projectId: cleanMetadataValue(metadata.PROJECT || ""),
+    tags,
+    status: specStatusFromTags(tags) || "pending",
+    statusHeading: specStatusHeading(specStatusFromTags(tags) || "pending"),
+    createdAt,
+    updatedAt,
+    path: specFile,
+    hostPath: specFileHostPath(specFile),
+    directoryPath: storageType === "directory" ? path.dirname(specFile) : null,
+    storageType,
+    raw,
+  };
+}
+
+async function readAllSpecs() {
+  let entries = [];
+  try {
+    entries = await fsp.readdir(SPECS_ROOT, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const seen = new Set();
+  const specs = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      const id = entry.name;
+      const specFile = path.resolve(SPECS_ROOT, id, "spec.md");
+      if (seen.has(id) || !isInsideDirectory(SPECS_ROOT, specFile) || !(await pathExists(specFile))) {
+        continue;
+      }
+      seen.add(id);
+      specs.push(await parseSpecFile(specFile, id, "directory"));
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      const id = entry.name.replace(/\.md$/i, "");
+      const specFile = path.resolve(SPECS_ROOT, entry.name);
+      if (seen.has(id) || !isInsideDirectory(SPECS_ROOT, specFile)) {
+        continue;
+      }
+      seen.add(id);
+      specs.push(await parseSpecFile(specFile, id, "file"));
+    }
+  }
+
+  return specs.sort((a, b) => {
+    const dateDiff = Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0);
+    if (dateDiff !== 0) return dateDiff;
+    return b.id.localeCompare(a.id);
+  });
+}
+
+function specMatchesFilters(spec, filters) {
+  const tag = normalizeTag(filters.tag || "");
+  const project = String(filters.project || "").trim();
+  const query = String(filters.q || "").trim().toLowerCase();
+
+  if (tag && !spec.tags.includes(tag)) {
+    return false;
+  }
+
+  if (project && spec.projectId !== project) {
+    return false;
+  }
+
+  if (query) {
+    const haystack = [spec.title, spec.description, spec.projectId, spec.tags.join(" ")].join(" ").toLowerCase();
+    if (!haystack.includes(query)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function serializeSpec(spec, projects = []) {
+  const project = spec.projectId
+    ? projects.find(
+        (entry) =>
+          entry.id === spec.projectId ||
+          entry.directoryName === spec.projectId ||
+          entry.name === spec.projectId ||
+          slugify(entry.name) === spec.projectId,
+      )
+    : null;
+
+  return {
+    id: spec.id,
+    title: spec.title,
+    description: spec.description,
+    projectId: spec.projectId,
+    projectName: project?.name || spec.projectId || "",
+    tags: spec.tags,
+    status: spec.status,
+    statusHeading: spec.statusHeading,
+    createdAt: spec.createdAt,
+    updatedAt: spec.updatedAt,
+    hostPath: spec.hostPath,
+    content: spec.raw,
+  };
+}
+
+async function serializeSpecs(specs) {
+  const projects = await loadProjects().catch(() => []);
+  return specs.map((spec) => serializeSpec(spec, projects));
+}
+
+async function listSpecs(filters = {}) {
+  const specs = await readAllSpecs();
+  return specs.filter((spec) => specMatchesFilters(spec, filters));
+}
+
+function isSafeSpecId(id) {
+  return /^[a-z0-9][a-z0-9._-]*$/i.test(String(id || "")) && !String(id).includes("..");
+}
+
+async function findSpecById(id) {
+  if (!isSafeSpecId(id)) {
+    throw validationError("Invalid spec id");
+  }
+  return (await readAllSpecs()).find((spec) => spec.id === id) || null;
+}
+
+async function validateSpecProject(projectId) {
+  const cleanProjectId = String(projectId || "").trim();
+  if (!cleanProjectId) {
+    return "";
+  }
+
+  if (!isSafeProjectKey(cleanProjectId)) {
+    throw validationError("Invalid project id");
+  }
+
+  const project = findProject(await loadProjects(), cleanProjectId);
+  if (!project) {
+    throw validationError("Project not found", 404);
+  }
+
+  return project.id;
+}
+
+async function createSpecId(title) {
+  const specs = await readAllSpecs();
+  const usedIds = new Set(specs.map((spec) => spec.id));
+  const maxNumber = specs.reduce((max, spec) => {
+    const match = spec.id.match(/^(\d{3})-/);
+    return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
+  }, 0);
+  const prefix = String(maxNumber + 1).padStart(3, "0");
+  const slug = slugifySpec(title);
+  let id = `${prefix}-${slug}`;
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    id = `${prefix}-${slug}-${suffix}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+function formatSpecDescription(description) {
+  return cleanSpecDescription(description) || "No description yet.";
+}
+
+function buildNewSpecMarkdown({ title, description, projectId, tags, createdAt, updatedAt }) {
+  const status = specStatusFromTags(tags) || "pending";
+  const body = formatSpecDescription(description);
+
+  return `# Specification: ${title}
+
+<!-- PROJECT: ${cleanMetadataValue(projectId)} -->
+<!-- TAGS: ${tags.join(", ")} -->
+<!-- CREATED_AT: ${createdAt} -->
+<!-- UPDATED_AT: ${updatedAt} -->
+
+## Feature: ${title}
+
+### Overview
+${body}
+
+### User Stories
+- As a user, I want ${title} so that the project can move forward.
+
+---
+
+## Functional Requirements
+
+### FR-1: ${title}
+${body}
+
+**Acceptance Criteria:**
+- [ ] The requested behavior is implemented.
+- [ ] The change is verified through the app UI or API.
+
+---
+
+## Success Criteria
+
+- The spec can be completed by a Ralph loop.
+
+---
+
+## Dependencies
+- None identified.
+
+## Assumptions
+- Details can be refined during implementation.
+
+---
+
+## Completion Signal
+
+### Implementation Checklist
+- [ ] Implementation complete
+- [ ] Verification complete
+
+### Testing Requirements
+- [ ] Acceptance criteria verified
+
+**Only when ALL checks pass, output:** \`<promise>DONE</promise>\`
+
+---
+
+## Status: ${specStatusHeading(status)}
+<!-- NR_OF_TRIES: 0 -->
+`;
+}
+
+function replaceSpecTitle(raw, title) {
+  if (/^#\s+Specification:/m.test(raw)) {
+    return raw.replace(/^#\s+Specification:.*$/m, () => `# Specification: ${title}`);
+  }
+  return `# Specification: ${title}\n\n${raw}`;
+}
+
+function replaceFeatureTitle(raw, title) {
+  if (/^##\s+Feature:/m.test(raw)) {
+    return raw.replace(/^##\s+Feature:.*$/m, () => `## Feature: ${title}`);
+  }
+  return raw.replace(/^#\s+Specification:.*$/m, (match) => `${match}\n\n## Feature: ${title}`);
+}
+
+function replaceOverview(raw, description) {
+  const body = formatSpecDescription(description);
+  const overviewPattern = /(###\s+Overview\s*\n)([\s\S]*?)(?=\n###\s+|\n---\s*\n|\n##\s+|\n#\s+|$)/i;
+  if (overviewPattern.test(raw)) {
+    return raw.replace(overviewPattern, () => `### Overview\n${body}\n`);
+  }
+
+  if (/^##\s+Feature:.*$/m.test(raw)) {
+    return raw.replace(/^##\s+Feature:.*$/m, (match) => `${match}\n\n### Overview\n${body}`);
+  }
+
+  return `${raw.trimEnd()}\n\n### Overview\n${body}\n`;
+}
+
+function upsertSpecMetadata(raw, metadata) {
+  let updated = raw;
+  const missingLines = [];
+
+  for (const [key, value] of Object.entries(metadata)) {
+    const line = `<!-- ${key}: ${cleanMetadataValue(value)} -->`;
+    const pattern = new RegExp(`^<!--\\s*${key}:\\s*[^\\n]*?\\s*-->\\s*$`, "m");
+    if (pattern.test(updated)) {
+      updated = updated.replace(pattern, line);
+    } else {
+      missingLines.push(line);
+    }
+  }
+
+  if (!missingLines.length) {
+    return updated;
+  }
+
+  const lines = updated.split(/\n/);
+  let insertIndex = lines[0]?.startsWith("# ") ? 1 : 0;
+  while (lines[insertIndex] && /^<!--\s*[A-Z_]+:/.test(lines[insertIndex])) {
+    insertIndex += 1;
+  }
+  lines.splice(insertIndex, 0, ...missingLines);
+  return lines.join("\n");
+}
+
+function upsertSpecStatus(raw, status) {
+  const heading = specStatusHeading(status);
+  if (/^##\s+Status:/m.test(raw)) {
+    return raw.replace(/^##\s+Status:.*$/m, () => `## Status: ${heading}`);
+  }
+
+  if (/<!--\s*NR_OF_TRIES:/m.test(raw)) {
+    return raw.replace(/<!--\s*NR_OF_TRIES:/m, () => `## Status: ${heading}\n<!-- NR_OF_TRIES:`);
+  }
+
+  return `${raw.trimEnd()}\n\n## Status: ${heading}\n<!-- NR_OF_TRIES: 0 -->\n`;
+}
+
+function updateSpecMarkdown(spec, fields) {
+  const title = cleanSpecTitle(fields.title || spec.title);
+  const description = cleanSpecDescription(fields.description ?? spec.description);
+  const projectId = fields.projectId ?? spec.projectId;
+  const tags = normalizeSpecTags(fields.tags ?? spec.tags, fields.status || spec.status);
+  const createdAt = spec.createdAt || fields.createdAt;
+  const updatedAt = fields.updatedAt;
+  let raw = spec.raw.trimEnd();
+
+  raw = replaceSpecTitle(raw, title);
+  raw = replaceFeatureTitle(raw, title);
+  raw = replaceOverview(raw, description);
+  raw = upsertSpecMetadata(raw, {
+    PROJECT: projectId || "",
+    TAGS: tags.join(", "),
+    CREATED_AT: createdAt,
+    UPDATED_AT: updatedAt,
+  });
+  raw = upsertSpecStatus(raw, specStatusFromTags(tags) || "pending");
+  return `${raw.trimEnd()}\n`;
+}
+
+async function writeSpecMarkdown(specFile, markdown) {
+  const resolved = path.resolve(specFile);
+  if (!isInsideDirectory(SPECS_ROOT, resolved)) {
+    throw validationError("Invalid spec path");
+  }
+
+  await fsp.mkdir(path.dirname(resolved), { recursive: true });
+  const tmpFile = `${resolved}.${process.pid}.tmp`;
+  await fsp.writeFile(tmpFile, markdown, "utf8");
+  await fsp.rename(tmpFile, resolved);
+}
+
+async function createSpec(payload) {
+  const title = cleanSpecTitle(payload.title);
+  if (!title) {
+    throw validationError("Title is required");
+  }
+
+  const projectId = await validateSpecProject(payload.projectId || "");
+  const tags = normalizeSpecTags(payload.tags || [], payload.status || "pending");
+  const id = await createSpecId(title);
+  const specFile = path.resolve(SPECS_ROOT, id, "spec.md");
+  const now = new Date().toISOString();
+  const markdown = buildNewSpecMarkdown({
+    title,
+    description: payload.description || "",
+    projectId,
+    tags,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await writeSpecMarkdown(specFile, markdown);
+  return findSpecById(id);
+}
+
+async function updateSpec(spec, payload) {
+  const title = cleanSpecTitle(payload.title ?? spec.title);
+  if (!title) {
+    throw validationError("Title is required");
+  }
+
+  const projectId = await validateSpecProject(payload.projectId ?? spec.projectId);
+  const now = new Date().toISOString();
+  const raw = updateSpecMarkdown(spec, {
+    title,
+    description: payload.description ?? spec.description,
+    projectId,
+    tags: payload.tags ?? spec.tags,
+    status: payload.status || spec.status,
+    updatedAt: now,
+  });
+
+  await writeSpecMarkdown(spec.path, raw);
+  return findSpecById(spec.id);
+}
+
+async function updateSpecTags(spec, tags) {
+  const now = new Date().toISOString();
+  const raw = updateSpecMarkdown(spec, {
+    title: spec.title,
+    description: spec.description,
+    projectId: spec.projectId,
+    tags,
+    status: specStatusFromTags(tags) || "pending",
+    updatedAt: now,
+  });
+  await writeSpecMarkdown(spec.path, raw);
+  return findSpecById(spec.id);
+}
+
+async function deleteSpec(spec) {
+  if (spec.storageType === "directory" && spec.directoryPath && isInsideDirectory(SPECS_ROOT, spec.directoryPath)) {
+    await fsp.rm(spec.directoryPath, { recursive: true, force: true });
+    return;
+  }
+
+  if (isInsideDirectory(SPECS_ROOT, spec.path)) {
+    await fsp.rm(spec.path, { force: true });
   }
 }
 
@@ -981,6 +1575,116 @@ async function handleLoopsApi(req, res, segments) {
   sendError(res, 404, "API endpoint not found");
 }
 
+async function handleSpecsApi(req, res, segments) {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  if (req.method === "GET" && segments.length === 2) {
+    const specs = await listSpecs({
+      tag: requestUrl.searchParams.get("tag") || "",
+      project: requestUrl.searchParams.get("project") || "",
+      q: requestUrl.searchParams.get("q") || "",
+    });
+    sendJson(res, 200, await serializeSpecs(specs));
+    return;
+  }
+
+  if (req.method === "POST" && segments.length === 2) {
+    const spec = await createSpec(await readJsonBody(req));
+    sendJson(res, 201, serializeSpec(spec, await loadProjects().catch(() => [])));
+    return;
+  }
+
+  const specId = decodeSegment(segments[2] || "");
+  if (!isSafeSpecId(specId)) {
+    sendError(res, 400, "Invalid spec id");
+    return;
+  }
+
+  const spec = await findSpecById(specId);
+  if (!spec) {
+    sendError(res, 404, "Spec not found");
+    return;
+  }
+
+  if (req.method === "GET" && segments.length === 3) {
+    sendJson(res, 200, serializeSpec(spec, await loadProjects().catch(() => [])));
+    return;
+  }
+
+  if (req.method === "PUT" && segments.length === 3) {
+    const updated = await updateSpec(spec, await readJsonBody(req));
+    sendJson(res, 200, serializeSpec(updated, await loadProjects().catch(() => [])));
+    return;
+  }
+
+  if (req.method === "DELETE" && segments.length === 3) {
+    await deleteSpec(spec);
+    sendJson(res, 200, { id: spec.id, deleted: true });
+    return;
+  }
+
+  if (req.method === "POST" && segments.length === 4 && segments[3] === "tags") {
+    const body = await readJsonBody(req);
+    const tag = normalizeTag(body.tag);
+    if (!tag) {
+      throw validationError("Tag is required");
+    }
+
+    let tags = spec.tags.filter((entry) => entry !== tag);
+    if (STATUS_TAGS.has(tag)) {
+      tags = tags.filter((entry) => !STATUS_TAGS.has(entry));
+    }
+    tags = normalizeSpecTags([...tags, tag], STATUS_TAGS.has(tag) ? tag : spec.status);
+    const updated = await updateSpecTags(spec, tags);
+    sendJson(res, 200, serializeSpec(updated, await loadProjects().catch(() => [])));
+    return;
+  }
+
+  if (req.method === "DELETE" && segments.length === 5 && segments[3] === "tags") {
+    const tag = normalizeTag(decodeSegment(segments[4] || ""));
+    if (!tag) {
+      sendError(res, 400, "Invalid tag");
+      return;
+    }
+
+    let tags = spec.tags.filter((entry) => entry !== tag);
+    if (!tags.some((entry) => STATUS_TAGS.has(entry))) {
+      tags = ["pending", ...tags];
+    }
+    tags = normalizeSpecTags(tags, specStatusFromTags(tags) || "pending");
+    const updated = await updateSpecTags(spec, tags);
+    sendJson(res, 200, serializeSpec(updated, await loadProjects().catch(() => [])));
+    return;
+  }
+
+  sendError(res, 404, "API endpoint not found");
+}
+
+async function handleTagsApi(req, res, segments) {
+  if (req.method !== "GET" || segments.length !== 2) {
+    sendError(res, 404, "API endpoint not found");
+    return;
+  }
+
+  const tags = new Set(["pending", "running", "done"]);
+  for (const spec of await readAllSpecs()) {
+    for (const tag of spec.tags) {
+      tags.add(tag);
+    }
+  }
+
+  const statusOrder = ["pending", "running", "done"];
+  const sorted = [...tags].sort((a, b) => {
+    const aIndex = statusOrder.indexOf(a);
+    const bIndex = statusOrder.indexOf(b);
+    if (aIndex >= 0 || bIndex >= 0) {
+      return (aIndex >= 0 ? aIndex : 99) - (bIndex >= 0 ? bIndex : 99);
+    }
+    return a.localeCompare(b);
+  });
+  sendJson(res, 200, sorted);
+}
+
 async function handleApi(req, res, apiPath) {
   const segments = apiPath.split("/").filter(Boolean);
 
@@ -996,6 +1700,16 @@ async function handleApi(req, res, apiPath) {
 
   if (segments[1] === "loops") {
     await handleLoopsApi(req, res, segments);
+    return;
+  }
+
+  if (segments[1] === "specs") {
+    await handleSpecsApi(req, res, segments);
+    return;
+  }
+
+  if (segments[1] === "tags") {
+    await handleTagsApi(req, res, segments);
     return;
   }
 
@@ -1044,7 +1758,9 @@ function serveStatic(req, res, pathname) {
     normalized === "/projects" ||
     normalized.startsWith("/projects/") ||
     normalized === "/loops" ||
-    normalized.startsWith("/loops/")
+    normalized.startsWith("/loops/") ||
+    normalized === "/specs" ||
+    normalized.startsWith("/specs/")
   ) {
     serveFile(res, "index.html");
     return;
@@ -1076,7 +1792,11 @@ const server = http.createServer(async (req, res) => {
     serveStatic(req, res, url.pathname);
   } catch (error) {
     console.error(error);
-    sendError(res, 500, "Internal server error");
+    if (!res.headersSent) {
+      sendError(res, error.status || 500, error.status ? error.message : "Internal server error");
+    } else {
+      res.end();
+    }
   }
 });
 
@@ -1090,5 +1810,6 @@ markInterruptedLoops()
       console.log(`Reading projects from ${PROJECTS_FILE}`);
       console.log(`Persisting watched projects in ${IMPORTED_FILE}`);
       console.log(`Persisting loop history in ${LOOPS_FILE}`);
+      console.log(`Reading specs from ${SPECS_ROOT}`);
     });
   });

@@ -36,7 +36,9 @@ a {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -238,7 +240,8 @@ h3 {
   text-transform: uppercase;
 }
 
-.search-field input {
+.search-field input,
+.search-field select {
   width: min(48vw, 310px);
   min-height: 40px;
   padding: 9px 12px;
@@ -249,7 +252,8 @@ h3 {
   text-transform: none;
 }
 
-.search-field input:focus {
+.search-field input:focus,
+.search-field select:focus {
   border-color: var(--accent);
   outline: 3px solid rgb(22 124 107 / 16%);
 }
@@ -281,6 +285,18 @@ h3 {
 .button-secondary:focus-visible {
   background: var(--panel-soft);
   color: var(--accent-dark);
+}
+
+.button-danger {
+  background: white;
+  color: var(--red);
+  border-color: #f0b8b2;
+}
+
+.button-danger:hover,
+.button-danger:focus-visible {
+  background: #fff0ee;
+  color: var(--red);
 }
 
 .button:disabled {
@@ -323,6 +339,7 @@ h3 {
 }
 
 .project-card,
+.spec-card,
 .detail-section,
 .error-panel,
 .loading-panel,
@@ -333,7 +350,8 @@ h3 {
   box-shadow: 0 8px 20px rgb(23 33 31 / 7%);
 }
 
-.project-card {
+.project-card,
+.spec-card {
   display: grid;
   gap: 16px;
   min-height: 228px;
@@ -341,7 +359,8 @@ h3 {
   cursor: pointer;
 }
 
-.project-card:hover {
+.project-card:hover,
+.spec-card:hover {
   border-color: rgb(22 124 107 / 45%);
 }
 
@@ -516,6 +535,112 @@ dl {
   margin-top: 5px;
 }
 
+.spec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 14px;
+}
+
+.spec-card-main,
+.spec-card-meta,
+.form-heading,
+.form-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.spec-card-meta {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.spec-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+  padding: clamp(20px, 4vw, 28px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgb(23 33 31 / 7%);
+}
+
+.form-heading {
+  align-items: center;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.form-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  text-transform: none;
+}
+
+.form-field textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid rgb(22 124 107 / 16%);
+}
+
+.form-actions {
+  justify-content: flex-end;
+}
+
+.form-error {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--red);
+  font-weight: 800;
+}
+
+.detail-section-wide {
+  grid-column: 1 / -1;
+}
+
+.spec-description-full {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .notice {
   min-height: 1.4em;
   margin: 14px 0 0;
@@ -666,17 +791,26 @@ dl {
   }
 
   .toolbar,
-  .search-field input {
+  .search-field input,
+  .search-field select {
     width: 100%;
   }
 
   .project-card-main,
+  .spec-card-main,
+  .spec-card-meta,
   .project-card-actions,
   .detail-row,
+  .form-heading,
+  .form-actions,
   .loop-card-main,
   .loop-history-item {
     flex-direction: column;
     display: flex;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
   }
 
   .detail-actions {
@@ -684,7 +818,8 @@ dl {
   }
 
   .detail-actions .button,
-  .project-card-actions .button {
+  .project-card-actions .button,
+  .form-actions .button {
     width: 100%;
   }
 }

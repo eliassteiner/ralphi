@@ -6,8 +6,13 @@ const app = document.querySelector("#app");
 const state = {
   projects: [],
   loops: [],
+  specs: [],
   loopLogs: {},
   query: "",
+  specQuery: "",
+  specTagFilter: "",
+  specProjectFilter: "",
+  specForm: null,
   loading: true,
   error: "",
 };
@@ -36,6 +41,10 @@ function projectHref(project) {
 
 function loopHref(loop) {
   return href(`/loops/${encodeURIComponent(loop.id)}`);
+}
+
+function specHref(spec) {
+  return href(`/specs/${encodeURIComponent(spec.id)}`);
 }
 
 function escapeHtml(value) {
@@ -82,9 +91,10 @@ function formatDuration(milliseconds) {
 }
 
 async function fetchJson(url, options = {}) {
+  const { headers = {}, ...rest } = options;
   const response = await fetch(url, {
-    headers: { accept: "application/json" },
-    ...options,
+    ...rest,
+    headers: { accept: "application/json", ...headers },
   });
   if (!response.ok) {
     let message = `Request failed with ${response.status}`;
@@ -110,12 +120,14 @@ async function loadData(options = {}) {
   }
 
   try {
-    const [projects, loops] = await Promise.all([
+    const [projects, loops, specs] = await Promise.all([
       fetchJson(`${API_BASE}/projects`),
       fetchJson(`${API_BASE}/loops`),
+      fetchJson(`${API_BASE}/specs`),
     ]);
     state.projects = projects;
     state.loops = loops;
+    state.specs = specs;
   } catch (error) {
     state.error = error.message;
   } finally {
@@ -224,6 +236,46 @@ function loopStatusBadge(loop) {
   return badge("Loop status", loop.status || "unknown", loopStatusType(loop.status));
 }
 
+function specStatusType(status) {
+  if (status === "done") return "good";
+  if (status === "running") return "info";
+  if (status === "pending") return "warn";
+  return "muted";
+}
+
+function tagType(tag) {
+  if (tag === "done") return "good";
+  if (tag === "running") return "info";
+  if (tag === "pending") return "warn";
+  return "imported";
+}
+
+function tagBadges(tags) {
+  return (tags || []).map((tag) => badge("Tag", tag, tagType(tag))).join("");
+}
+
+function projectNameForId(projectId) {
+  if (!projectId) return "Kein Projekt";
+  const project = state.projects.find(
+    (entry) =>
+      entry.id === projectId ||
+      entry.directoryName === projectId ||
+      entry.name === projectId,
+  );
+  return project?.name || projectId;
+}
+
+function availableSpecProjects(selectedProjectId = "") {
+  const imported = state.projects.filter((project) => project.imported);
+  const selected = selectedProjectId
+    ? state.projects.find((project) => project.id === selectedProjectId)
+    : null;
+  if (selected && !imported.some((project) => project.id === selected.id)) {
+    return [...imported, selected];
+  }
+  return imported;
+}
+
 function projectMatches(project, query) {
   if (!query) return true;
   const haystack = [
@@ -242,6 +294,201 @@ function groupedProjects() {
     status,
     projects: visible.filter((project) => project.status === status),
   })).filter((group) => group.projects.length > 0);
+}
+
+function specMatches(spec) {
+  if (state.specTagFilter && !(spec.tags || []).includes(state.specTagFilter)) {
+    return false;
+  }
+
+  if (state.specProjectFilter && spec.projectId !== state.specProjectFilter) {
+    return false;
+  }
+
+  if (!state.specQuery) {
+    return true;
+  }
+
+  const query = state.specQuery.toLowerCase();
+  const haystack = [
+    spec.title,
+    spec.description,
+    spec.projectId,
+    spec.projectName,
+    (spec.tags || []).join(" "),
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
+function filteredSpecs() {
+  return state.specs.filter(specMatches);
+}
+
+function specProjectOptions(selectedProjectId = "") {
+  const projects = availableSpecProjects(selectedProjectId);
+  return [
+    `<option value="">Kein Projekt</option>`,
+    ...projects.map((project) => `
+      <option value="${escapeHtml(project.id)}" ${project.id === selectedProjectId ? "selected" : ""}>
+        ${escapeHtml(project.name)}
+      </option>
+    `),
+  ].join("");
+}
+
+function renderSpecForm(spec = null) {
+  const isEdit = Boolean(spec);
+  const title = spec?.title || "";
+  const description = spec?.description || "";
+  const projectId = spec?.projectId || "";
+  const tags = (spec?.tags || ["pending"]).join(", ");
+
+  return `
+    <form class="spec-form" data-spec-form data-mode="${isEdit ? "edit" : "create"}" data-spec-id="${escapeHtml(spec?.id || "")}">
+      <div class="form-heading">
+        <div>
+          <p class="eyebrow">${isEdit ? "Spec bearbeiten" : "Neue Spec"}</p>
+          <h2>${isEdit ? escapeHtml(spec.title) : "Spec erstellen"}</h2>
+        </div>
+        <button type="button" class="button button-secondary" data-action="cancel-spec-form">Abbrechen</button>
+      </div>
+      <div class="form-grid">
+        <label class="form-field">
+          <span>Titel</span>
+          <input name="title" required maxlength="140" value="${escapeHtml(title)}">
+        </label>
+        <label class="form-field">
+          <span>Projekt</span>
+          <select name="projectId">
+            ${specProjectOptions(projectId)}
+          </select>
+        </label>
+        <label class="form-field form-field-wide">
+          <span>Beschreibung</span>
+          <textarea name="description" rows="7">${escapeHtml(description)}</textarea>
+        </label>
+        <label class="form-field form-field-wide">
+          <span>Tags</span>
+          <input name="tags" value="${escapeHtml(tags)}" placeholder="pending, ui, backend">
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="button">${isEdit ? "Speichern" : "Spec speichern"}</button>
+      </div>
+      <p class="form-error" aria-live="polite"></p>
+    </form>
+  `;
+}
+
+function renderSpecCard(spec) {
+  return `
+    <article class="spec-card" data-spec-card-id="${escapeHtml(spec.id)}">
+      <div class="spec-card-main">
+        <div>
+          <a class="project-name" href="${specHref(spec)}" data-route>${escapeHtml(spec.title)}</a>
+          <p class="project-description">${escapeHtml(spec.description || "Keine Beschreibung")}</p>
+        </div>
+        ${badge("Status", spec.status, specStatusType(spec.status))}
+      </div>
+      <div class="badge-row">${tagBadges(spec.tags)}</div>
+      <div class="spec-card-meta">
+        <span>${escapeHtml(projectNameForId(spec.projectId))}</span>
+        <span>Erstellt: ${escapeHtml(formatTimestamp(spec.createdAt))}</span>
+      </div>
+      <div class="project-card-actions">
+        <a class="text-link" href="${specHref(spec)}" data-route>Details</a>
+        <a class="text-link" href="${fileHref(spec.hostPath)}">Datei</a>
+      </div>
+    </article>
+  `;
+}
+
+function renderSpecsPage() {
+  if (state.loading) {
+    app.innerHTML = `<section class="loading-panel" aria-live="polite">Loading specs...</section>`;
+    return;
+  }
+
+  if (state.error) {
+    app.innerHTML = `
+      <section class="error-panel" role="alert">
+        <h1>Specs could not be loaded</h1>
+        <p>${escapeHtml(state.error)}</p>
+        <button type="button" class="button" data-action="refresh">Refresh</button>
+      </section>
+    `;
+    return;
+  }
+
+  const specs = filteredSpecs();
+  const importedProjects = availableSpecProjects();
+  app.innerHTML = `
+    <section class="detail-header">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Spec-Editor</p>
+          <h1>Specs</h1>
+          <p class="summary">${state.specs.length} Specs erkannt, ${state.specs.filter((spec) => spec.status !== "done").length} offen.</p>
+        </div>
+        <button type="button" class="button" data-action="open-spec-form">Neue Spec</button>
+      </div>
+    </section>
+
+    ${state.specForm?.mode === "create" ? renderSpecForm() : ""}
+
+    <section class="projects-section" aria-labelledby="specs-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Filter</p>
+          <h2 id="specs-title">Spec-Liste</h2>
+        </div>
+        <div class="toolbar">
+          <label class="search-field">
+            <span>Search</span>
+            <input id="spec-search" type="search" value="${escapeHtml(state.specQuery)}" placeholder="Spec suchen">
+          </label>
+          <label class="search-field">
+            <span>Status</span>
+            <select id="spec-status-filter">
+              <option value="">Alle</option>
+              <option value="pending" ${state.specTagFilter === "pending" ? "selected" : ""}>pending</option>
+              <option value="running" ${state.specTagFilter === "running" ? "selected" : ""}>running</option>
+              <option value="done" ${state.specTagFilter === "done" ? "selected" : ""}>done</option>
+            </select>
+          </label>
+          <label class="search-field">
+            <span>Projekt</span>
+            <select id="spec-project-filter">
+              <option value="">Alle</option>
+              ${importedProjects.map((project) => `
+                <option value="${escapeHtml(project.id)}" ${state.specProjectFilter === project.id ? "selected" : ""}>
+                  ${escapeHtml(project.name)}
+                </option>
+              `).join("")}
+            </select>
+          </label>
+          <button type="button" class="button button-secondary" data-action="refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="projects-meta">
+        <span>${specs.length} sichtbar</span>
+        <span>${state.specs.filter((spec) => spec.status === "pending").length} pending</span>
+        <span>${state.specs.filter((spec) => spec.status === "running").length} running</span>
+        <span>${state.specs.filter((spec) => spec.status === "done").length} done</span>
+      </div>
+      ${
+        specs.length
+          ? `<div class="spec-grid">${specs.map(renderSpecCard).join("")}</div>`
+          : `<p class="empty-state">Keine Specs gefunden.</p>`
+      }
+    </section>
+  `;
+
+  if (!state.specForm) {
+    const search = document.querySelector("#spec-search");
+    search?.focus({ preventScroll: true });
+    search?.setSelectionRange(search.value.length, search.value.length);
+  }
 }
 
 function loopsForProject(projectId) {
@@ -507,6 +754,66 @@ function renderDetailPage(projectId) {
   `;
 }
 
+function renderSpecDetailPage(specId) {
+  if (state.loading) {
+    app.innerHTML = `<section class="loading-panel" aria-live="polite">Loading spec...</section>`;
+    return;
+  }
+
+  const spec = state.specs.find((entry) => entry.id === specId);
+  if (!spec) {
+    app.innerHTML = `
+      <section class="error-panel" role="alert">
+        <h1>Spec not found</h1>
+        <a class="text-link" href="${href("/specs")}" data-route>Back to specs</a>
+      </section>
+    `;
+    return;
+  }
+
+  app.innerHTML = `
+    <section class="detail-header">
+      <a class="text-link" href="${href("/specs")}" data-route>Back to specs</a>
+      <div class="detail-title-row">
+        <div>
+          <p class="eyebrow">${escapeHtml(projectNameForId(spec.projectId))}</p>
+          <h1>${escapeHtml(spec.title)}</h1>
+          <p class="summary">${escapeHtml(spec.description || "Keine Beschreibung")}</p>
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="button button-secondary" data-action="mark-spec-running" data-spec-id="${escapeHtml(spec.id)}" ${spec.status === "running" ? "disabled" : ""}>In Arbeit</button>
+          <button type="button" class="button" data-action="mark-spec-done" data-spec-id="${escapeHtml(spec.id)}" ${spec.status === "done" ? "disabled" : ""}>Als done markieren</button>
+          <button type="button" class="button button-secondary" data-action="edit-spec" data-spec-id="${escapeHtml(spec.id)}">Bearbeiten</button>
+          <button type="button" class="button button-danger" data-action="delete-spec" data-spec-id="${escapeHtml(spec.id)}">Löschen</button>
+        </div>
+      </div>
+      <div class="badge-row">${tagBadges(spec.tags)}</div>
+      <p id="spec-notice" class="notice" aria-live="polite"></p>
+    </section>
+
+    ${state.specForm?.mode === "edit" && state.specForm.specId === spec.id ? renderSpecForm(spec) : ""}
+
+    <section class="detail-layout">
+      <article class="detail-section">
+        <h2>Details</h2>
+        <dl>
+          ${detailRow("Status", badge("Status", spec.status, specStatusType(spec.status)))}
+          ${detailRow("Projekt", escapeHtml(projectNameForId(spec.projectId)))}
+          ${detailRow("Tags", `<span class="badge-row">${tagBadges(spec.tags)}</span>`)}
+          ${detailRow("Erstellt", escapeHtml(formatTimestamp(spec.createdAt)))}
+          ${detailRow("Geändert", escapeHtml(formatTimestamp(spec.updatedAt)))}
+          ${detailRow("Datei", spec.hostPath ? `<a class="text-link" href="${fileHref(spec.hostPath)}">${escapeHtml(spec.hostPath)}</a>` : "Nicht gefunden")}
+        </dl>
+      </article>
+
+      <article class="detail-section detail-section-wide">
+        <h2>Beschreibung</h2>
+        <p class="spec-description-full">${escapeHtml(spec.description || "Keine Beschreibung")}</p>
+      </article>
+    </section>
+  `;
+}
+
 function renderLoopCard(loop) {
   return `
     <article class="loop-card">
@@ -652,6 +959,16 @@ function render() {
     return;
   }
 
+  if (currentRoute === "/specs") {
+    renderSpecsPage();
+    return;
+  }
+
+  if (currentRoute.startsWith("/specs/")) {
+    renderSpecDetailPage(decodeURIComponent(currentRoute.replace("/specs/", "")));
+    return;
+  }
+
   if (currentRoute === "/loops") {
     renderLoopsPage();
     return;
@@ -713,6 +1030,95 @@ async function stopLoop(button, loopId) {
   }
 }
 
+function tagsFromInput(value) {
+  return String(value || "")
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+async function saveSpec(form) {
+  const submitButton = form.querySelector("button[type='submit']");
+  const errorLine = form.querySelector(".form-error");
+  submitButton.disabled = true;
+  if (errorLine) {
+    errorLine.textContent = "";
+  }
+
+  const formData = new FormData(form);
+  const payload = {
+    title: formData.get("title"),
+    description: formData.get("description"),
+    projectId: formData.get("projectId"),
+    tags: tagsFromInput(formData.get("tags")),
+  };
+  const specId = form.dataset.specId;
+  const isEdit = form.dataset.mode === "edit";
+
+  try {
+    const spec = await fetchJson(`${API_BASE}/specs${isEdit ? `/${encodeURIComponent(specId)}` : ""}`, {
+      method: isEdit ? "PUT" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    state.specForm = null;
+    await loadData({ silent: true });
+    window.history.pushState({}, "", specHref(spec));
+    render();
+  } catch (error) {
+    if (errorLine) {
+      errorLine.textContent = error.message;
+    } else {
+      state.error = error.message;
+      render();
+    }
+    submitButton.disabled = false;
+  }
+}
+
+async function setSpecStatus(button, specId, tag) {
+  button.disabled = true;
+  const notice = document.querySelector("#spec-notice");
+  if (notice) {
+    notice.textContent = "Speichern...";
+  }
+
+  try {
+    await fetchJson(`${API_BASE}/specs/${encodeURIComponent(specId)}/tags`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag }),
+    });
+    await loadData({ silent: true });
+  } catch (error) {
+    if (notice) {
+      notice.textContent = error.message;
+    } else {
+      state.error = error.message;
+      render();
+    }
+    button.disabled = false;
+  }
+}
+
+async function deleteSpec(button, specId) {
+  if (!window.confirm("Spec wirklich löschen?")) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    await fetchJson(`${API_BASE}/specs/${encodeURIComponent(specId)}`, { method: "DELETE" });
+    state.specForm = null;
+    await loadData({ silent: true });
+    window.history.pushState({}, "", href("/specs"));
+    render();
+  } catch (error) {
+    state.error = error.message;
+    render();
+  }
+}
+
 document.addEventListener("click", (event) => {
   const routeLink = event.target.closest("a[data-route]");
   if (routeLink) {
@@ -728,6 +1134,33 @@ document.addEventListener("click", (event) => {
     const action = actionButton.dataset.action;
     if (action === "refresh" || action === "refresh-loops") {
       loadData();
+      return;
+    }
+    if (action === "open-spec-form") {
+      state.specForm = { mode: "create" };
+      render();
+      return;
+    }
+    if (action === "cancel-spec-form") {
+      state.specForm = null;
+      render();
+      return;
+    }
+    if (action === "edit-spec") {
+      state.specForm = { mode: "edit", specId: actionButton.dataset.specId };
+      render();
+      return;
+    }
+    if (action === "mark-spec-running") {
+      setSpecStatus(actionButton, actionButton.dataset.specId, "running");
+      return;
+    }
+    if (action === "mark-spec-done") {
+      setSpecStatus(actionButton, actionButton.dataset.specId, "done");
+      return;
+    }
+    if (action === "delete-spec") {
+      deleteSpec(actionButton, actionButton.dataset.specId);
       return;
     }
     if (action === "start-loop") {
@@ -753,12 +1186,41 @@ document.addEventListener("click", (event) => {
     window.history.pushState({}, "", projectHref({ id: card.dataset.cardId }));
     render();
   }
+
+  const specCard = event.target.closest("[data-spec-card-id]");
+  if (specCard && !event.target.closest("a, button")) {
+    window.history.pushState({}, "", specHref({ id: specCard.dataset.specCardId }));
+    render();
+  }
 });
 
 document.addEventListener("input", (event) => {
   if (event.target.id === "project-search") {
     state.query = event.target.value;
     renderProjectsPage();
+  }
+  if (event.target.id === "spec-search") {
+    state.specQuery = event.target.value;
+    renderSpecsPage();
+  }
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target.id === "spec-status-filter") {
+    state.specTagFilter = event.target.value;
+    renderSpecsPage();
+  }
+  if (event.target.id === "spec-project-filter") {
+    state.specProjectFilter = event.target.value;
+    renderSpecsPage();
+  }
+});
+
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("form[data-spec-form]");
+  if (form) {
+    event.preventDefault();
+    saveSpec(form);
   }
 });
 
