@@ -67,14 +67,23 @@ Specs sollen direkt im ralphi-WebGUI erstellt, bearbeitet und verwaltet werden k
 - [ ] `DELETE /api/specs/{id}/tags/{tag}` – Tag entfernen
 - [ ] `GET /api/tags` – Alle verwendeten Tags
 
-### FR-6: Speicherung als Spec-Datei
+### FR-6: Speicherung im Projekt-Ordner
 
 **Acceptance Criteria:**
-- [ ] Neue Specs werden als `specs/XXX-titel/spec.md` gespeichert
-- [ ] Das Spec-Format folgt dem Template (`templates/spec-template.md`)
-- [ ] Jede Spec enthält `## Status: PENDING` / `RUNNING` / `COMPLETE`
-- [ ] Tags werden als `<!-- TAGS: done, running -->`-Kommentar gespeichert
-- [ ] Bestehende Specs aus dem Dateisystem werden erkannt und in der Liste angezeigt
+- [ ] Neue Specs werden im Projekt-Ordner gespeichert: `/vibes/{project}/specs/{id}/spec.md`
+- [ ] Wenn kein Projekt ausgewählt: Speicherung in ralphi-eigenem specs/
+- [ ] Spec-Liste scannt ALLE importierten Projekte + ralphi selbst nach Specs
+- [ ] Specs können im Projekt-Ordner bearbeitet (überschrieben) werden
+- [ ] Bestehende Specs in Projekten werden erkannt und angezeigt
+- [ ] Beim Löschen einer Spec: Wenn sie in einem Projekt liegt, wird sie dort gelöscht
+
+### FR-7: Alle Projekte durchsuchen
+
+**Acceptance Criteria:**
+- [ ] Spec-Liste aggregiert Specs aus allen importierten Projekten
+- [ ] Jede Spec zeigt aus welchem Projekt sie stammt
+- [ ] Filter nach Projekt möglich
+- [ ] Änderungen an Specs (erstellen/editieren/löschen) wirken direkt im Projekt-Ordner
 
 ---
 
@@ -96,11 +105,12 @@ Specs sollen direkt im ralphi-WebGUI erstellt, bearbeitet und verwaltet werden k
 ### Implementation Checklist
 
 - [ ] Backend: CRUD-API für Specs inkl. Tag-Filter
+- [ ] Backend: Specs in Projekt-Ordnern speichern (nicht nur in ralphi/specs)
+- [ ] Backend: Alle importierten Projekte nach Specs durchsuchen
 - [ ] Frontend: Spec-Liste (`/ralphi/specs`) mit Filter/Suche
-- [ ] Frontend: Spec-Erstellungs-Formular
+- [ ] Frontend: Spec-Erstellungs-Formular mit Projekt-Auswahl
 - [ ] Frontend: Spec-Detailseite mit Tag-Management
-- [ ] Speicherung als echte Spec-Dateien im `specs/`-Ordner
-- [ ] Bestehende Specs aus Dateisystem erkennen und anzeigen
+- [ ] Speicherung als echte Spec-Dateien im Projekt-Ordner
 
 ### Testing Requirements
 
