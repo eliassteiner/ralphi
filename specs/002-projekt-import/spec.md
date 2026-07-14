@@ -20,55 +20,55 @@ Ralphi soll bestehende Projekte aus dem vibes-Ordner erkennen und importieren k�
 ### FR-1: PROJECTS.md als Datenquelle
 
 **Acceptance Criteria:**
-- [ ] ralphi liest `/Users/boot/Documents/vibes/PROJECTS.md` und parst die Projektliste
-- [ ] Die Tabelle aus PROJECTS.md wird als Datenbasis genutzt
-- [ ] Jedes Projekt bekommt eine Import-Karte mit: Name, Beschreibung, Status, Ralph, Docker, Proxy
-- [ ] Der Import scannt auch tatsächlich das Dateisystem (Check ob Ordner existiert)
+- [x] ralphi liest `/Users/boot/Documents/vibes/PROJECTS.md` und parst die Projektliste
+- [x] Die Tabelle aus PROJECTS.md wird als Datenbasis genutzt
+- [x] Jedes Projekt bekommt eine Import-Karte mit: Name, Beschreibung, Status, Ralph, Docker, Proxy
+- [x] Der Import scannt auch tatsächlich das Dateisystem (Check ob Ordner existiert)
 
 ### FR-2: Dashboard-Ansicht "Projekte"
 
 **Acceptance Criteria:**
-- [ ] Neue Seite/Route `/ralphi/projects` zeigt alle erkannten Projekte
-- [ ] Projekte sind gefiltert/grouped nach Status (Aktiv, Archiv, Referenz)
-- [ ] Jede Projektkarte zeigt:
+- [x] Neue Seite/Route `/ralphi/projects` zeigt alle erkannten Projekte
+- [x] Projekte sind gefiltert/grouped nach Status (Aktiv, Archiv, Referenz)
+- [x] Jede Projektkarte zeigt:
   - Projektname (als Link zum Ordner)
   - Beschreibung
   - Badges: Ralph? Docker? Proxy?
   - Import-Button (wenn noch nicht importiert)
   - Status-Indikator (Aktiv/Archiv/Referenz)
-- [ ] Die Ansicht ist responsive und suchbar
-- [ ] Es gibt einen "Refresh"-Button zum erneuten Scannen
+- [x] Die Ansicht ist responsive und suchbar
+- [x] Es gibt einen "Refresh"-Button zum erneuten Scannen
 
 ### FR-3: Import-Funktion
 
 **Acceptance Criteria:**
-- [ ] Klick auf "Importieren" nimmt ein Projekt in ralphis beobachtete Liste auf
-- [ ] Importierte Projekte werden persistent gespeichert (JSON-Datei oder ähnlich – leicht halten)
-- [ ] Einmal importierte Projekte zeigen "Beobachtet" statt "Importieren"
-- [ ] Man kann Projekte auch wieder entfernen (nicht mehr beobachten)
-- [ ] Daten werden im Container gespeichert (Volume oder bind mount)
+- [x] Klick auf "Importieren" nimmt ein Projekt in ralphis beobachtete Liste auf
+- [x] Importierte Projekte werden persistent gespeichert (JSON-Datei oder ähnlich – leicht halten)
+- [x] Einmal importierte Projekte zeigen "Beobachtet" statt "Importieren"
+- [x] Man kann Projekte auch wieder entfernen (nicht mehr beobachten)
+- [x] Daten werden im Container gespeichert (Volume oder bind mount)
 
 ### FR-4: Detail-Ansicht pro Projekt
 
 **Acceptance Criteria:**
-- [ ] Klick auf ein Projekt öffnet eine Detailseite (`/ralphi/projects/{name}`)
-- [ ] Detailseite zeigt:
+- [x] Klick auf ein Projekt öffnet eine Detailseite (`/ralphi/projects/{name}`)
+- [x] Detailseite zeigt:
   - Vollständige Infos aus PROJECTS.md
   - Ob Ralph-Setup existiert (AGENTS.md, specs/)
   - Docker-Compose-Status
   - Proxy-Route (falls vorhanden)
   - Button "Ralph Loop starten" (für importierte Projekte)
-- [ ] Bei Projekten mit Ralph-Setup: Link zu den Specs
+- [x] Bei Projekten mit Ralph-Setup: Link zu den Specs
 
 ### FR-5: API-Endpoints (Backend)
 
 **Acceptance Criteria:**
-- [ ] `GET /api/projects` – Liste aller erkannten Projekte
-- [ ] `GET /api/projects/{name}` – Detail-Infos zu einem Projekt
-- [ ] `POST /api/projects/{name}/import` – Projekt importieren
-- [ ] `POST /api/projects/{name}/unwatch` – Projekt nicht mehr beobachten
-- [ ] `GET /api/projects/imported` – Liste der importierten Projekte
-- [ ] API liefert JSON, Fehler als 4xx/5xx mit message
+- [x] `GET /api/projects` – Liste aller erkannten Projekte
+- [x] `GET /api/projects/{name}` – Detail-Infos zu einem Projekt
+- [x] `POST /api/projects/{name}/import` – Projekt importieren
+- [x] `POST /api/projects/{name}/unwatch` – Projekt nicht mehr beobachten
+- [x] `GET /api/projects/imported` – Liste der importierten Projekte
+- [x] API liefert JSON, Fehler als 4xx/5xx mit message
 
 ---
 
@@ -101,29 +101,29 @@ Ralphi soll bestehende Projekte aus dem vibes-Ordner erkennen und importieren k�
 ### Testing Requirements
 
 #### Code Quality
-- [ ] `docker compose config` gibt keinen Fehler
-- [ ] Backend startet ohne Fehler
-- [ ] Keine Sicherheitslücken (Read-Only-Mount, Path traversal check)
+- [x] `docker compose config` gibt keinen Fehler
+- [x] Backend startet ohne Fehler
+- [x] Keine Sicherheitslücken (Read-Only-Mount, Path traversal check)
 
 #### Functional Verification
-- [ ] `GET /api/projects` liefert eine Liste von Projekten
-- [ ] Die Liste enthält ralphi selbst, planed1, vibes-proxy u.a.
-- [ ] `POST /api/projects/planed1/import` funktioniert
-- [ ] `GET /api/projects/imported` zeigt importierte Projekte
-- [ ] `/ralphi/projects` zeigt die GUI an
-- [ ] Detailseite eines Projekts ist erreichbar
-- [ ] "Nicht mehr beobachten" funktioniert
+- [x] `GET /api/projects` liefert eine Liste von Projekten
+- [x] Die Liste enthält ralphi selbst, planed1, vibes-proxy u.a.
+- [x] `POST /api/projects/planed1/import` funktioniert
+- [x] `GET /api/projects/imported` zeigt importierte Projekte
+- [x] `/ralphi/projects` zeigt die GUI an
+- [x] Detailseite eines Projekts ist erreichbar
+- [x] "Nicht mehr beobachten" funktioniert
 
 #### Visual Verification
-- [ ] Projektkarten sehen sauber aus
-- [ ] Badges sind farblich unterscheidbar
-- [ ] Mobil-Ansicht funktioniert
-- [ ] Keine horizontalen Scrollbars
+- [x] Projektkarten sehen sauber aus
+- [x] Badges sind farblich unterscheidbar
+- [x] Mobil-Ansicht funktioniert
+- [x] Keine horizontalen Scrollbars
 
 #### Console/Network Check
-- [ ] Keine 404er für API-Calls
-- [ ] Keine JS-Fehler in der Konsole
-- [ ] API-Responses sind valides JSON
+- [x] Keine 404er für API-Calls
+- [x] Keine JS-Fehler in der Konsole
+- [x] API-Responses sind valides JSON
 
 ### Iteration Instructions
 
@@ -139,4 +139,4 @@ Wenn etwas fehlschlägt:
 ---
 
 ## Status: COMPLETE
-<!-- NR_OF_TRIES: 1 -->
+<!-- NR_OF_TRIES: 2 -->
