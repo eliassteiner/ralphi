@@ -880,6 +880,13 @@ dl {
 .kanban-cards {
   display: grid;
   gap: 10px;
+  min-height: 72px;
+  border-radius: 8px;
+}
+
+.kanban-cards.is-drop-target {
+  outline: 2px dashed rgb(22 124 107 / 55%);
+  outline-offset: 4px;
 }
 
 .story-card {
@@ -895,6 +902,10 @@ dl {
 .story-card:hover,
 .story-card:focus-within {
   border-color: rgb(22 124 107 / 45%);
+}
+
+.story-card.is-dragging {
+  opacity: 0.6;
 }
 
 .story-card h3 {
@@ -955,6 +966,16 @@ dl {
   color: var(--muted);
   cursor: default;
   opacity: 0.72;
+}
+
+.tiny-button-danger {
+  color: var(--red);
+  border-color: #f0b8b2;
+}
+
+.tiny-button-danger:hover,
+.tiny-button-danger:focus-visible {
+  background: #fff0ee;
 }
 
 .editor-workspace {

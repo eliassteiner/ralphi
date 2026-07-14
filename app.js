@@ -1116,6 +1116,7 @@ function renderStoryCard(project, spec) {
   return `
     <article
       class="story-card"
+      draggable="true"
       data-story-id="${escapeHtml(spec.id)}"
       data-story-file-path="${escapeHtml(spec.filePath || "")}"
       data-project-id="${escapeHtml(project.id)}"
@@ -1138,6 +1139,7 @@ function renderStoryCard(project, spec) {
         </label>
         ${canOpenFile ? `<button type="button" class="tiny-button" data-action="open-story-file" data-project-id="${escapeHtml(project.id)}" data-path="${escapeHtml(spec.filePath)}">Öffnen</button>` : ""}
         ${moveButtons}
+        <button type="button" class="tiny-button tiny-button-danger" data-action="delete-story" data-project-id="${escapeHtml(project.id)}" data-spec-id="${escapeHtml(spec.id)}">Löschen</button>
       </div>
     </article>
   `;
@@ -1174,7 +1176,7 @@ function renderStoryboard(project) {
                 <h3 id="kanban-${escapeHtml(status)}">${escapeHtml(label)}</h3>
                 <span>${columnStories.length}</span>
               </div>
-              <div class="kanban-cards">
+              <div class="kanban-cards" data-drop-status="${escapeHtml(status)}">
                 ${
                   columnStories.length
                     ? columnStories.map((spec) => renderStoryCard(project, spec)).join("")
@@ -1824,6 +1826,33 @@ async function deleteSpec(button, specId) {
   }
 }
 
+async function deleteStory(button, specId, projectId) {
+  if (!window.confirm("Story wirklich löschen?")) {
+    return;
+  }
+
+  button.disabled = true;
+  const spec = state.specs.find((entry) => entry.id === specId);
+  const deletedPath = spec?.filePath || "";
+
+  try {
+    await fetchJson(`${API_BASE}/specs/${encodeURIComponent(specId)}`, { method: "DELETE" });
+    if (deletedPath && state.selectedFilePath === deletedPath) {
+      state.selectedFilePath = "";
+      state.selectedFileContent = "";
+      state.selectedFileOriginal = "";
+      state.selectedFileMeta = null;
+    }
+    await loadData({ silent: true });
+    await loadProjectFiles(projectId, { silent: true });
+  } catch (error) {
+    state.fileError = error.message;
+    render();
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function defaultContentForPath(filePath) {
   const extension = filePath.split(".").pop().toLowerCase();
   if (extension === "json") return "{\n  \n}\n";
@@ -1940,7 +1969,9 @@ async function createStory(form) {
 }
 
 async function moveStory(button, specId, status) {
-  button.disabled = true;
+  if (button) {
+    button.disabled = true;
+  }
   try {
     await fetchJson(`${API_BASE}/specs/${encodeURIComponent(specId)}/tags`, {
       method: "POST",
@@ -1952,7 +1983,9 @@ async function moveStory(button, specId, status) {
     state.fileError = error.message;
     render();
   } finally {
-    button.disabled = false;
+    if (button) {
+      button.disabled = false;
+    }
   }
 }
 
@@ -2153,6 +2186,10 @@ document.addEventListener("click", (event) => {
       deleteSpec(actionButton, actionButton.dataset.specId);
       return;
     }
+    if (action === "delete-story") {
+      deleteStory(actionButton, actionButton.dataset.specId, actionButton.dataset.projectId);
+      return;
+    }
     if (action === "open-story-form") {
       state.storyFormOpen = true;
       render();
@@ -2235,6 +2272,71 @@ document.addEventListener("click", (event) => {
   const storyCard = event.target.closest("[data-story-id]");
   if (storyCard && !event.target.closest("a, button, input, label, textarea, select") && storyCard.dataset.storyFilePath) {
     openProjectFile(storyCard.dataset.projectId, storyCard.dataset.storyFilePath);
+  }
+});
+
+document.addEventListener("dragstart", (event) => {
+  const storyCard = event.target.closest("[data-story-id]");
+  if (!storyCard) {
+    return;
+  }
+
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", storyCard.dataset.storyId);
+  event.dataTransfer.setData("application/x-ralphi-story", JSON.stringify({
+    specId: storyCard.dataset.storyId,
+    projectId: storyCard.dataset.projectId,
+  }));
+  storyCard.classList.add("is-dragging");
+});
+
+document.addEventListener("dragend", (event) => {
+  const storyCard = event.target.closest("[data-story-id]");
+  if (storyCard) {
+    storyCard.classList.remove("is-dragging");
+  }
+  document.querySelectorAll(".kanban-cards.is-drop-target").forEach((column) => {
+    column.classList.remove("is-drop-target");
+  });
+});
+
+document.addEventListener("dragover", (event) => {
+  const dropTarget = event.target.closest("[data-drop-status]");
+  if (!dropTarget) {
+    return;
+  }
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  dropTarget.classList.add("is-drop-target");
+});
+
+document.addEventListener("dragleave", (event) => {
+  const dropTarget = event.target.closest("[data-drop-status]");
+  if (dropTarget && !dropTarget.contains(event.relatedTarget)) {
+    dropTarget.classList.remove("is-drop-target");
+  }
+});
+
+document.addEventListener("drop", (event) => {
+  const dropTarget = event.target.closest("[data-drop-status]");
+  if (!dropTarget) {
+    return;
+  }
+
+  event.preventDefault();
+  dropTarget.classList.remove("is-drop-target");
+
+  let specId = event.dataTransfer.getData("text/plain");
+  try {
+    const payload = JSON.parse(event.dataTransfer.getData("application/x-ralphi-story") || "{}");
+    specId = payload.specId || specId;
+  } catch {
+    // The plain text payload is enough for the move.
+  }
+
+  if (specId) {
+    moveStory(dropTarget, specId, dropTarget.dataset.dropStatus);
   }
 });
 
