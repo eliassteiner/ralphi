@@ -12,7 +12,7 @@ services:
     ports:
       - "8081:80"
     volumes:
-      - /Users/boot/Documents/vibes:/vibes:ro
+      - /Users/boot/Documents/vibes:/vibes:rw
       - ./data:/data
     networks:
       vibes-proxy:

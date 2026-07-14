@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
+const { spawn } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
 
@@ -12,6 +13,9 @@ const PROJECTS_FILE = path.join(VIBES_ROOT, "PROJECTS.md");
 const PROXY_CADDYFILE = path.join(VIBES_ROOT, "vibes-proxy", "Caddyfile");
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(APP_ROOT, "data"));
 const IMPORTED_FILE = path.join(DATA_DIR, "imported-projects.json");
+const LOOPS_FILE = path.join(DATA_DIR, "loops.json");
+const LOOP_TIMEOUT_MS = Number.parseInt(process.env.LOOP_TIMEOUT_MS || `${24 * 60 * 60 * 1000}`, 10);
+const LOOP_SCRIPT_CANDIDATES = ["scripts/ralph-loop-codex.sh", "scripts/ralph-loop.sh"];
 
 const STATUS_ORDER = ["Aktiv", "Archiv", "Referenz"];
 const STATIC_FILES = new Map([
@@ -30,6 +34,11 @@ const CONTENT_TYPES = {
   ".svg": "image/svg+xml; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
 };
+
+const runningLoops = new Map();
+const streamClients = new Map();
+let loopsCachePromise = null;
+let loopsSaveQueue = Promise.resolve();
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -381,6 +390,393 @@ async function saveImportedIds(ids) {
   await fsp.rename(tmpFile, IMPORTED_FILE);
 }
 
+async function readLoopsFromDisk() {
+  try {
+    const raw = await fsp.readFile(LOOPS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    const loops = Array.isArray(parsed) ? parsed : parsed.loops;
+    return (Array.isArray(loops) ? loops : []).map((loop) => ({
+      ...loop,
+      logs: Array.isArray(loop.logs) ? loop.logs : [],
+    }));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function loadLoops() {
+  if (!loopsCachePromise) {
+    loopsCachePromise = readLoopsFromDisk();
+  }
+  return loopsCachePromise;
+}
+
+async function saveLoopsNow(loops) {
+  await fsp.mkdir(DATA_DIR, { recursive: true });
+  const tmpFile = `${LOOPS_FILE}.${process.pid}.tmp`;
+  await fsp.writeFile(tmpFile, `${JSON.stringify(loops, null, 2)}\n`, "utf8");
+  await fsp.rename(tmpFile, LOOPS_FILE);
+}
+
+function queueSaveLoops(loops) {
+  loopsSaveQueue = loopsSaveQueue
+    .catch((error) => {
+      console.error("Previous loop save failed", error);
+    })
+    .then(() => saveLoopsNow(loops));
+  return loopsSaveQueue;
+}
+
+function isSafeLoopId(id) {
+  return /^[a-z0-9][a-z0-9-]*$/i.test(String(id || ""));
+}
+
+function createLoopId(projectId) {
+  const random = Math.random().toString(36).slice(2, 8);
+  return `loop-${slugify(projectId)}-${Date.now().toString(36)}-${random}`;
+}
+
+function durationMs(loop) {
+  const start = Date.parse(loop.startedAt || "");
+  if (!Number.isFinite(start)) {
+    return null;
+  }
+  const end = loop.finishedAt ? Date.parse(loop.finishedAt) : Date.now();
+  return Number.isFinite(end) ? Math.max(0, end - start) : null;
+}
+
+function serializeLoop(loop, options = {}) {
+  const serialized = {
+    id: loop.id,
+    projectId: loop.projectId,
+    projectName: loop.projectName,
+    projectDirectoryName: loop.projectDirectoryName,
+    status: loop.status,
+    startedAt: loop.startedAt,
+    finishedAt: loop.finishedAt || null,
+    exitCode: Number.isInteger(loop.exitCode) ? loop.exitCode : loop.exitCode ?? null,
+    signal: loop.signal || null,
+    command: loop.command,
+    args: loop.args || [],
+    cwd: loop.cwd,
+    hostPath: loop.hostPath || null,
+    timeoutMs: loop.timeoutMs || LOOP_TIMEOUT_MS,
+    durationMs: durationMs(loop),
+    failureReason: loop.failureReason || "",
+    logLineCount: Array.isArray(loop.logs) ? loop.logs.length : 0,
+  };
+
+  if (options.includeLogs) {
+    serialized.logs = Array.isArray(loop.logs) ? loop.logs : [];
+  }
+
+  return serialized;
+}
+
+function findLoop(loops, loopId) {
+  return loops.find((loop) => loop.id === loopId);
+}
+
+function activeLoopForProject(loops, projectId) {
+  return loops.find((loop) => loop.projectId === projectId && loop.status === "running");
+}
+
+function writeSse(res, eventName, payload) {
+  res.write(`event: ${eventName}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastLoop(loop, eventName, payload) {
+  const clients = streamClients.get(loop.id);
+  if (!clients) {
+    return;
+  }
+
+  for (const res of [...clients]) {
+    try {
+      writeSse(res, eventName, payload);
+    } catch {
+      clients.delete(res);
+    }
+  }
+
+  if (clients.size === 0) {
+    streamClients.delete(loop.id);
+  }
+}
+
+function closeLoopStreams(loop) {
+  const clients = streamClients.get(loop.id);
+  if (!clients) {
+    return;
+  }
+
+  for (const res of [...clients]) {
+    try {
+      res.end();
+    } catch {
+      // The client may already have gone away.
+    }
+  }
+  streamClients.delete(loop.id);
+}
+
+function appendLoopLog(loop, stream, text) {
+  if (!text) {
+    return;
+  }
+
+  const entry = {
+    at: new Date().toISOString(),
+    stream,
+    text,
+  };
+  loop.logs.push(entry);
+  broadcastLoop(loop, "log", entry);
+  loadLoops()
+    .then((loops) => queueSaveLoops(loops))
+    .catch((error) => console.error("Failed to persist loop log", error));
+}
+
+function finishLoop(loop, status, exitCode, signal, failureReason = "") {
+  if (loop.status !== "running") {
+    return;
+  }
+
+  const running = runningLoops.get(loop.id);
+  if (running?.timeout) {
+    clearTimeout(running.timeout);
+  }
+
+  loop.status = status;
+  loop.finishedAt = new Date().toISOString();
+  loop.exitCode = Number.isInteger(exitCode) ? exitCode : null;
+  loop.signal = signal || null;
+  loop.failureReason = failureReason;
+
+  runningLoops.delete(loop.id);
+  const serialized = serializeLoop(loop);
+  broadcastLoop(loop, "status", serialized);
+  broadcastLoop(loop, "end", serialized);
+  closeLoopStreams(loop);
+
+  loadLoops()
+    .then((loops) => queueSaveLoops(loops))
+    .catch((error) => console.error("Failed to persist loop finish", error));
+}
+
+function killLoopProcess(child, signal) {
+  if (!child || child.killed) {
+    return;
+  }
+
+  try {
+    if (child.pid) {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // Fall back to killing the direct child if the process group is gone.
+  }
+
+  try {
+    child.kill(signal);
+  } catch {
+    // The process may already have exited.
+  }
+}
+
+async function findLoopScript(projectPath) {
+  for (const candidate of LOOP_SCRIPT_CANDIDATES) {
+    const scriptPath = path.join(projectPath, candidate);
+    if (await pathExists(scriptPath)) {
+      return {
+        command: `./${candidate}`,
+        scriptPath,
+      };
+    }
+  }
+  return null;
+}
+
+async function markInterruptedLoops() {
+  const loops = await loadLoops();
+  let changed = false;
+
+  for (const loop of loops) {
+    if (loop.status === "running") {
+      loop.status = "failed";
+      loop.finishedAt = new Date().toISOString();
+      loop.exitCode = null;
+      loop.signal = null;
+      loop.failureReason = "Ralphi restarted while this loop was running";
+      loop.logs = Array.isArray(loop.logs) ? loop.logs : [];
+      loop.logs.push({
+        at: loop.finishedAt,
+        stream: "stderr",
+        text: "Ralphi restarted while this loop was running.\n",
+      });
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await saveLoopsNow(loops);
+  }
+}
+
+async function startLoop(project) {
+  if (!project.exists || !project.path || !isInsideVibesRoot(project.path)) {
+    const error = new Error("Project folder does not exist");
+    error.status = 400;
+    throw error;
+  }
+
+  if (!project.imported) {
+    const error = new Error("Project is not observed");
+    error.status = 409;
+    throw error;
+  }
+
+  const loops = await loadLoops();
+  const existing = activeLoopForProject(loops, project.id);
+  if (existing) {
+    const error = new Error("Loop läuft bereits");
+    error.status = 409;
+    error.loop = serializeLoop(existing);
+    throw error;
+  }
+
+  const script = await findLoopScript(project.path);
+  if (!script) {
+    const error = new Error("No Ralph loop script found");
+    error.status = 400;
+    throw error;
+  }
+
+  const loop = {
+    id: createLoopId(project.id),
+    projectId: project.id,
+    projectName: project.name,
+    projectDirectoryName: project.directoryName,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    signal: null,
+    command: script.command,
+    args: ["1"],
+    cwd: project.path,
+    hostPath: project.hostPath,
+    timeoutMs: LOOP_TIMEOUT_MS,
+    failureReason: "",
+    logs: [],
+  };
+
+  loops.unshift(loop);
+  await queueSaveLoops(loops);
+
+  const child = spawn(loop.command, loop.args, {
+    cwd: loop.cwd,
+    env: {
+      ...process.env,
+      RALPHI_LOOP_ID: loop.id,
+      RALPHI_PROJECT_ID: loop.projectId,
+    },
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const timeout = setTimeout(() => {
+    loop.timedOutAt = new Date().toISOString();
+    appendLoopLog(loop, "stderr", `Loop timed out after ${Math.round(loop.timeoutMs / 1000)} seconds.\n`);
+    killLoopProcess(child, "SIGTERM");
+    setTimeout(() => killLoopProcess(child, "SIGKILL"), 5000).unref();
+  }, loop.timeoutMs);
+  timeout.unref();
+
+  runningLoops.set(loop.id, { child, timeout });
+  appendLoopLog(loop, "stdout", `$ ${loop.command} ${loop.args.join(" ")}\n`);
+
+  child.stdout.on("data", (chunk) => appendLoopLog(loop, "stdout", chunk.toString()));
+  child.stderr.on("data", (chunk) => appendLoopLog(loop, "stderr", chunk.toString()));
+  child.on("error", (error) => {
+    appendLoopLog(loop, "stderr", `${error.message}\n`);
+    finishLoop(loop, "failed", null, null, error.message);
+  });
+  child.on("close", (exitCode, signal) => {
+    const status = loop.stopRequestedAt
+      ? "stopped"
+      : loop.timedOutAt
+        ? "failed"
+        : exitCode === 0
+          ? "done"
+          : "failed";
+    const reason = loop.timedOutAt ? "Loop timed out" : "";
+    finishLoop(loop, status, exitCode, signal, reason);
+  });
+
+  return loop;
+}
+
+async function stopLoop(loop) {
+  if (loop.status !== "running") {
+    const error = new Error("Loop is not running");
+    error.status = 409;
+    throw error;
+  }
+
+  const running = runningLoops.get(loop.id);
+  if (!running?.child) {
+    finishLoop(loop, "failed", null, null, "Loop process is not attached");
+    return loop;
+  }
+
+  loop.stopRequestedAt = new Date().toISOString();
+  appendLoopLog(loop, "stderr", "Stop requested by user.\n");
+  killLoopProcess(running.child, "SIGTERM");
+  setTimeout(() => killLoopProcess(running.child, "SIGKILL"), 5000).unref();
+  await queueSaveLoops(await loadLoops());
+  return loop;
+}
+
+async function streamLoop(req, res, loop) {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  res.write(": connected\n\n");
+
+  for (const entry of loop.logs || []) {
+    writeSse(res, "log", entry);
+  }
+  writeSse(res, "status", serializeLoop(loop));
+
+  if (loop.status !== "running") {
+    writeSse(res, "end", serializeLoop(loop));
+    res.end();
+    return;
+  }
+
+  if (!streamClients.has(loop.id)) {
+    streamClients.set(loop.id, new Set());
+  }
+  const clients = streamClients.get(loop.id);
+  clients.add(res);
+
+  req.on("close", () => {
+    clients.delete(res);
+    if (clients.size === 0) {
+      streamClients.delete(loop.id);
+    }
+  });
+}
+
 async function loadProjects() {
   const [markdown, proxyText, importedIds] = await Promise.all([
     fsp.readFile(PROJECTS_FILE, "utf8"),
@@ -467,14 +863,7 @@ function findProject(projects, key) {
   );
 }
 
-async function handleApi(req, res, apiPath) {
-  const segments = apiPath.split("/").filter(Boolean);
-
-  if (segments[0] !== "api" || segments[1] !== "projects") {
-    sendError(res, 404, "API endpoint not found");
-    return;
-  }
-
+async function handleProjectsApi(req, res, segments) {
   if (req.method === "GET" && segments.length === 2) {
     sendJson(res, 200, await loadProjects());
     return;
@@ -522,6 +911,94 @@ async function handleApi(req, res, apiPath) {
     return;
   }
 
+  if (req.method === "POST" && segments.length === 5 && segments[3] === "loop" && segments[4] === "start") {
+    try {
+      const loop = await startLoop(project);
+      sendJson(res, 201, serializeLoop(loop));
+    } catch (error) {
+      sendJson(res, error.status || 500, {
+        message: error.message || "Failed to start loop",
+        loop: error.loop || null,
+      });
+    }
+    return;
+  }
+
+  sendError(res, 404, "API endpoint not found");
+}
+
+async function handleLoopsApi(req, res, segments) {
+  const loops = await loadLoops();
+
+  if (req.method === "GET" && segments.length === 2) {
+    const sorted = [...loops].sort((a, b) => Date.parse(b.startedAt || 0) - Date.parse(a.startedAt || 0));
+    sendJson(res, 200, sorted.map((loop) => serializeLoop(loop)));
+    return;
+  }
+
+  const loopId = decodeSegment(segments[2] || "");
+  if (!isSafeLoopId(loopId)) {
+    sendError(res, 400, "Invalid loop id");
+    return;
+  }
+
+  const loop = findLoop(loops, loopId);
+  if (!loop) {
+    sendError(res, 404, "Loop not found");
+    return;
+  }
+
+  if (req.method === "GET" && segments.length === 3) {
+    sendJson(res, 200, serializeLoop(loop));
+    return;
+  }
+
+  if (req.method === "GET" && segments.length === 4 && segments[3] === "logs") {
+    const logs = Array.isArray(loop.logs) ? loop.logs : [];
+    sendJson(res, 200, {
+      id: loop.id,
+      logs,
+      text: logs.map((entry) => entry.text).join(""),
+    });
+    return;
+  }
+
+  if (req.method === "GET" && segments.length === 4 && segments[3] === "stream") {
+    await streamLoop(req, res, loop);
+    return;
+  }
+
+  if (req.method === "POST" && segments.length === 4 && segments[3] === "stop") {
+    try {
+      const stopped = await stopLoop(loop);
+      sendJson(res, 202, serializeLoop(stopped));
+    } catch (error) {
+      sendError(res, error.status || 500, error.message || "Failed to stop loop");
+    }
+    return;
+  }
+
+  sendError(res, 404, "API endpoint not found");
+}
+
+async function handleApi(req, res, apiPath) {
+  const segments = apiPath.split("/").filter(Boolean);
+
+  if (segments[0] !== "api") {
+    sendError(res, 404, "API endpoint not found");
+    return;
+  }
+
+  if (segments[1] === "projects") {
+    await handleProjectsApi(req, res, segments);
+    return;
+  }
+
+  if (segments[1] === "loops") {
+    await handleLoopsApi(req, res, segments);
+    return;
+  }
+
   sendError(res, 404, "API endpoint not found");
 }
 
@@ -562,7 +1039,13 @@ function serveStatic(req, res, pathname) {
     return;
   }
 
-  if (normalized === "/" || normalized === "/projects" || normalized.startsWith("/projects/")) {
+  if (
+    normalized === "/" ||
+    normalized === "/projects" ||
+    normalized.startsWith("/projects/") ||
+    normalized === "/loops" ||
+    normalized.startsWith("/loops/")
+  ) {
     serveFile(res, "index.html");
     return;
   }
@@ -597,8 +1080,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Ralphi listening on http://${HOST}:${PORT}`);
-  console.log(`Reading projects from ${PROJECTS_FILE}`);
-  console.log(`Persisting watched projects in ${IMPORTED_FILE}`);
-});
+markInterruptedLoops()
+  .catch((error) => {
+    console.error("Failed to recover loop state", error);
+  })
+  .finally(() => {
+    server.listen(PORT, HOST, () => {
+      console.log(`Ralphi listening on http://${HOST}:${PORT}`);
+      console.log(`Reading projects from ${PROJECTS_FILE}`);
+      console.log(`Persisting watched projects in ${IMPORTED_FILE}`);
+      console.log(`Persisting loop history in ${LOOPS_FILE}`);
+    });
+  });
