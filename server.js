@@ -1729,7 +1729,7 @@ async function streamChat(req, res) {
   } catch (error) {
     writeChatError(res, error.name === "AbortError" ? "Chat request timed out" : error.message || "Chat failed");
   } finally {
-    if (projectId && visibleMessages.length) {
+    if (visibleMessages.length) {
       const persisted = assistantContent
         ? [...visibleMessages, { role: "assistant", content: assistantContent }]
         : visibleMessages;

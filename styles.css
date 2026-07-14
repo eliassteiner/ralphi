@@ -801,9 +801,22 @@ dl {
 .dashboard-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr) minmax(260px, 0.72fr);
+  grid-template-areas: "storyboard editor sidebar";
   gap: 16px;
   margin-top: 24px;
   align-items: start;
+}
+
+.storyboard-pane {
+  grid-area: storyboard;
+}
+
+.editor-pane {
+  grid-area: editor;
+}
+
+.side-pane {
+  grid-area: sidebar;
 }
 
 .dashboard-pane,
@@ -1157,11 +1170,10 @@ dl {
 
 @media (min-width: 761px) and (max-width: 1023px) {
   .dashboard-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .side-pane {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.9fr);
+    grid-template-areas:
+      "storyboard sidebar"
+      "editor sidebar";
   }
 
   .editor-workspace,
@@ -1233,6 +1245,13 @@ dl {
   .editor-workspace,
   .chat-form {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-layout {
+    grid-template-areas:
+      "storyboard"
+      "editor"
+      "sidebar";
   }
 
   .kanban-board {
