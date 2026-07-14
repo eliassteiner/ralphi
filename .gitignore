@@ -1,3 +1,5 @@
 logs/
 PROMPT_build.md
 PROMPT_plan.md
+data/*.json
+!data/.gitkeep

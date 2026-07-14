@@ -4,8 +4,16 @@ services:
       context: .
     image: ralphi:local
     restart: unless-stopped
+    environment:
+      PORT: "80"
+      VIBES_ROOT: /vibes
+      VIBES_HOST_ROOT: /Users/boot/Documents/vibes
+      DATA_DIR: /data
     ports:
       - "8081:80"
+    volumes:
+      - /Users/boot/Documents/vibes:/vibes:ro
+      - ./data:/data
     networks:
       vibes-proxy:
         aliases:
