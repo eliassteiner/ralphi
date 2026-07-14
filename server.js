@@ -16,6 +16,7 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(APP_ROOT, "data"
 const IMPORTED_FILE = path.join(DATA_DIR, "imported-projects.json");
 const LOOPS_FILE = path.join(DATA_DIR, "loops.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+const CHAT_HISTORY_FILE = path.join(DATA_DIR, "chat-history.json");
 const RALPH_PROJECT_ROOT = path.resolve(
   process.env.RALPH_PROJECT_ROOT ||
     (fs.existsSync(path.join(VIBES_ROOT, "ralph")) ? path.join(VIBES_ROOT, "ralph") : APP_ROOT),
@@ -43,6 +44,7 @@ const MAX_EDITABLE_FILES = 500;
 const MAX_EDITABLE_DEPTH = 6;
 const MAX_EDITABLE_FILE_BYTES = 1024 * 1024;
 const CHAT_TIMEOUT_MS = 60_000;
+const MAX_CHAT_MESSAGES = 80;
 const LEGACY_DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_PROVIDER = Object.freeze({
   name: "wyna",
@@ -671,6 +673,27 @@ async function validateSpecProject(projectId) {
   return project.id;
 }
 
+async function resolveProjectContext(projectId, options = {}) {
+  const cleanProjectId = String(projectId || "").trim();
+  if (!cleanProjectId) {
+    if (options.required) {
+      throw validationError("Project id is required");
+    }
+    return { id: "", project: null };
+  }
+
+  if (!isSafeProjectKey(cleanProjectId)) {
+    throw validationError("Invalid project id");
+  }
+
+  const project = findProject(await loadProjects(), cleanProjectId);
+  if (!project) {
+    throw validationError("Project not found", 404);
+  }
+
+  return { id: project.id, project };
+}
+
 async function createSpecId(title) {
   const specs = await readAllSpecs();
   const usedIds = new Set(specs.map((spec) => spec.id));
@@ -755,6 +778,53 @@ ${body}
 ## Status: ${specStatusHeading(status)}
 <!-- NR_OF_TRIES: 0 -->
 `;
+}
+
+function stripMarkdownFence(markdown) {
+  const raw = String(markdown || "").trim();
+  const match = raw.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/i);
+  return match ? match[1].trim() : raw;
+}
+
+function titleFromIdea(idea) {
+  const firstLine = String(idea || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  const clean = cleanSpecTitle(firstLine || "Idea Spec");
+  return clean.length > 90 ? `${clean.slice(0, 87).trim()}...` : clean;
+}
+
+function ensureNrOfTries(raw) {
+  if (/<!--\s*NR_OF_TRIES:/m.test(raw)) {
+    return raw;
+  }
+  return `${raw.trimEnd()}\n<!-- NR_OF_TRIES: 0 -->\n`;
+}
+
+function normalizeGeneratedSpecMarkdown({ generated, idea, projectId, tags, createdAt, updatedAt }) {
+  let raw = stripMarkdownFence(generated);
+  if (!raw) {
+    throw validationError("Provider returned an empty spec", 502);
+  }
+
+  const fallbackTitle = titleFromIdea(idea);
+  const title = extractSpecTitle(raw, slugifySpec(fallbackTitle));
+  if (!/^#\s+Specification:/m.test(raw)) {
+    raw = `# Specification: ${title || fallbackTitle}\n\n${raw.replace(/^#\s+.*$/m, "").trimStart()}`;
+  } else {
+    raw = replaceSpecTitle(raw, title || fallbackTitle);
+  }
+
+  raw = upsertSpecMetadata(raw, {
+    PROJECT: projectId || "",
+    TAGS: normalizeSpecTags(tags, "pending").join(", "),
+    CREATED_AT: createdAt,
+    UPDATED_AT: updatedAt,
+  });
+  raw = upsertSpecStatus(raw, "pending");
+  raw = ensureNrOfTries(raw);
+  return `${raw.trimEnd()}\n`;
 }
 
 function replaceSpecTitle(raw, title) {
@@ -888,6 +958,49 @@ async function createSpec(payload) {
     createdAt: now,
     updatedAt: now,
   });
+
+  await writeSpecMarkdown(specFile, markdown);
+  return findSpecById(id);
+}
+
+async function createSpecFromIdea(payload) {
+  const idea = cleanSpecDescription(payload.idea || payload.description || "");
+  if (!idea) {
+    throw validationError("Idea is required");
+  }
+
+  const { id: projectId, project } = await resolveProjectContext(payload.projectId || "");
+  if (projectId && (!project?.exists || !project.path || !isInsideVibesRoot(project.path))) {
+    throw validationError("Project folder does not exist", 400);
+  }
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "Du erstellst Ralph-Wiggum-Specs als Markdown. Antworte nur mit einer vollstaendigen Spec im bestehenden Projektformat.",
+    },
+    {
+      role: "user",
+      content:
+        "Erstelle eine Ralph-Wiggum-Spec aus dieser Idee: Format mit Titel, Beschreibung, Acceptance Criteria, Completion Signal.\n\n" +
+        idea,
+    },
+  ];
+  const generated = await collectChatCompletion(messages);
+  const now = new Date().toISOString();
+  const markdown = normalizeGeneratedSpecMarkdown({
+    generated,
+    idea,
+    projectId,
+    tags: ["pending", "ai-generated"],
+    createdAt: now,
+    updatedAt: now,
+  });
+  const title = extractSpecTitle(markdown, slugifySpec(titleFromIdea(idea)));
+  const id = await createSpecId(title);
+  const specRoot = project ? path.join(project.path, "specs") : SPECS_ROOT;
+  const specFile = path.resolve(specRoot, id, "spec.md");
 
   await writeSpecMarkdown(specFile, markdown);
   return findSpecById(id);
@@ -1375,12 +1488,152 @@ function normalizeChatMessages(payload) {
   return cleanMessages;
 }
 
+function normalizeVisibleChatMessages(messages) {
+  const cleanMessages = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (!isPlainObject(message)) {
+      continue;
+    }
+    const role = ["user", "assistant"].includes(message.role) ? message.role : "";
+    const content = String(message.content || "").trim();
+    if (role && content) {
+      cleanMessages.push({ role, content: content.slice(0, 20000) });
+    }
+  }
+  return cleanMessages.slice(-MAX_CHAT_MESSAGES);
+}
+
 function chatCompletionsUrl(baseUrl) {
   const clean = String(baseUrl || "").replace(/\/+$/, "");
   if (/\/chat\/completions$/i.test(clean)) {
     return clean;
   }
   return `${clean}/chat/completions`;
+}
+
+function chatHistoryKey(projectId) {
+  return projectId || "__global__";
+}
+
+function normalizeChatHistoryEntry(entry, projectId = "") {
+  const source = isPlainObject(entry) ? entry : {};
+  return {
+    projectId,
+    systemPrompt: String(source.systemPrompt || "Du hilfst mir Specs zu schreiben.").slice(0, 12000),
+    messages: normalizeVisibleChatMessages(source.messages || []),
+    updatedAt: source.updatedAt || null,
+  };
+}
+
+async function readChatHistories() {
+  try {
+    const raw = await fsp.readFile(CHAT_HISTORY_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    const histories = isPlainObject(parsed?.histories) ? parsed.histories : parsed;
+    return isPlainObject(histories) ? histories : {};
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+}
+
+async function loadProjectChatHistory(projectId = "") {
+  const histories = await readChatHistories();
+  return normalizeChatHistoryEntry(histories[chatHistoryKey(projectId)], projectId);
+}
+
+async function saveProjectChatHistory(projectId, systemPrompt, messages) {
+  const histories = await readChatHistories();
+  const key = chatHistoryKey(projectId);
+  histories[key] = normalizeChatHistoryEntry(
+    {
+      systemPrompt,
+      messages,
+      updatedAt: new Date().toISOString(),
+    },
+    projectId,
+  );
+
+  await fsp.mkdir(DATA_DIR, { recursive: true });
+  const tmpFile = `${CHAT_HISTORY_FILE}.${process.pid}.tmp`;
+  await fsp.writeFile(tmpFile, `${JSON.stringify({ histories }, null, 2)}\n`, "utf8");
+  await fsp.rename(tmpFile, CHAT_HISTORY_FILE);
+  return histories[key];
+}
+
+async function collectChatCompletion(messages) {
+  const settings = await loadSettings();
+  const provider = settings.provider;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("Chat request timed out")), CHAT_TIMEOUT_MS);
+
+  try {
+    const upstream = await fetch(chatCompletionsUrl(provider.baseUrl), {
+      method: "POST",
+      headers: {
+        accept: "text/event-stream, application/json",
+        "content-type": "application/json",
+        ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        messages,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!upstream.ok) {
+      const errorText = await upstream.text().catch(() => "");
+      throw validationError(errorText || `Provider returned ${upstream.status}`, 502);
+    }
+
+    const contentType = upstream.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const parsed = await upstream.json();
+      return String(parsed?.choices?.[0]?.message?.content || parsed?.choices?.[0]?.text || "").trim();
+    }
+
+    let output = "";
+    let buffer = "";
+    const decoder = new TextDecoder();
+    for await (const chunk of upstream.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) {
+          continue;
+        }
+
+        const data = trimmed.replace(/^data:\s*/, "");
+        if (data === "[DONE]") {
+          return output.trim();
+        }
+
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        output += parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.message?.content || "";
+      }
+    }
+
+    return output.trim();
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw validationError("Chat request timed out", 504);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function writeChatError(res, message) {
@@ -1396,10 +1649,14 @@ async function streamChat(req, res) {
   }
 
   const payload = await readJsonBody(req);
+  const { id: projectId } = await resolveProjectContext(payload.projectId || "");
+  const systemPrompt = String(payload.systemPrompt || "").trim();
+  const visibleMessages = normalizeVisibleChatMessages(payload.messages || []);
   const settings = await loadSettings();
   const provider = settings.provider;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error("Chat request timed out")), CHAT_TIMEOUT_MS);
+  let assistantContent = "";
 
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -1461,6 +1718,7 @@ async function streamChat(req, res) {
         }
 
         const content = parsed?.choices?.[0]?.delta?.content || "";
+        assistantContent += content;
         for (const character of Array.from(content)) {
           writeSse(res, "delta", { content: character });
         }
@@ -1471,6 +1729,16 @@ async function streamChat(req, res) {
   } catch (error) {
     writeChatError(res, error.name === "AbortError" ? "Chat request timed out" : error.message || "Chat failed");
   } finally {
+    if (projectId && visibleMessages.length) {
+      const persisted = assistantContent
+        ? [...visibleMessages, { role: "assistant", content: assistantContent }]
+        : visibleMessages;
+      try {
+        await saveProjectChatHistory(projectId, systemPrompt, persisted);
+      } catch (error) {
+        console.error("Failed to persist chat history", error);
+      }
+    }
     clearTimeout(timeout);
     res.end();
   }
@@ -2214,6 +2482,12 @@ async function handleSpecsApi(req, res, segments) {
     return;
   }
 
+  if (req.method === "POST" && segments.length === 3 && segments[2] === "from-idea") {
+    const spec = await createSpecFromIdea(await readJsonBody(req));
+    sendJson(res, 201, serializeSpec(spec, await loadProjects().catch(() => [])));
+    return;
+  }
+
   const specId = decodeSegment(segments[2] || "");
   if (!isSafeSpecId(specId)) {
     sendError(res, 400, "Invalid spec id");
@@ -2305,6 +2579,27 @@ async function handleTagsApi(req, res, segments) {
   sendJson(res, 200, sorted);
 }
 
+async function handleChatApi(req, res, segments) {
+  if (segments.length !== 2) {
+    sendError(res, 404, "API endpoint not found");
+    return;
+  }
+
+  if (req.method === "GET") {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const { id: projectId } = await resolveProjectContext(requestUrl.searchParams.get("projectId") || "");
+    sendJson(res, 200, await loadProjectChatHistory(projectId));
+    return;
+  }
+
+  if (req.method === "POST") {
+    await streamChat(req, res);
+    return;
+  }
+
+  sendError(res, 405, "Method not allowed");
+}
+
 async function handleApi(req, res, apiPath) {
   const segments = apiPath.split("/").filter(Boolean);
 
@@ -2339,7 +2634,7 @@ async function handleApi(req, res, apiPath) {
   }
 
   if (segments[1] === "chat") {
-    await streamChat(req, res);
+    await handleChatApi(req, res, segments);
     return;
   }
 

@@ -833,8 +833,16 @@ dl {
   margin-bottom: 14px;
 }
 
+.pane-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .story-form,
-.new-file-form {
+.new-file-form,
+.idea-form {
   display: grid;
   gap: 12px;
   margin: 0 0 14px;
@@ -905,6 +913,24 @@ dl {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.ready-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 6px;
+  padding: 5px 8px;
+  color: var(--accent-dark);
+  font-size: 0.76rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.ready-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .tiny-button {
@@ -1108,6 +1134,25 @@ dl {
   min-height: 72px;
 }
 
+@media (min-width: 761px) and (max-width: 1023px) {
+  .dashboard-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .side-pane {
+    grid-column: 1 / -1;
+  }
+
+  .editor-workspace,
+  .chat-form {
+    grid-template-columns: 1fr;
+  }
+
+  .file-list {
+    max-height: 300px;
+  }
+}
+
 @media (max-width: 760px) {
   .topbar,
   .status-panel,
@@ -1164,14 +1209,19 @@ dl {
   }
 
   .dashboard-layout,
-  .kanban-board,
   .editor-workspace,
   .chat-form {
     grid-template-columns: 1fr;
   }
 
   .kanban-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
     min-height: 0;
+  }
+
+  .kanban-column {
+    padding: 8px;
   }
 
   .editor-workspace {
@@ -1195,7 +1245,12 @@ dl {
   .form-actions .button,
   .side-actions .button,
   .pane-heading .button,
-  .terminal-header .button {
+  .terminal-header .button,
+  .pane-actions,
+  .pane-actions .button,
+  .story-actions .tiny-button,
+  .ready-toggle,
+  .chat-form .button {
     width: 100%;
   }
 }

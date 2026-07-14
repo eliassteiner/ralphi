@@ -22,6 +22,10 @@ const state = {
   specProjectFilter: "",
   specForm: null,
   storyFormOpen: false,
+  ideaFormOpen: false,
+  ideaText: "",
+  ideaWorking: false,
+  ideaError: "",
   dashboardProjectId: "",
   projectFiles: [],
   projectFilesLoading: false,
@@ -33,6 +37,8 @@ const state = {
   fileError: "",
   newFileOpen: false,
   terminalCollapsed: false,
+  chatProjectId: "",
+  chatLoading: false,
   chatMessages: [],
   chatSystemPrompt: "Du hilfst mir Specs zu schreiben.",
   chatStreaming: false,
@@ -596,13 +602,27 @@ function dashboardReset(projectId) {
   state.fileError = "";
   state.newFileOpen = false;
   state.storyFormOpen = false;
+  state.ideaFormOpen = false;
+  state.ideaText = "";
+  state.ideaWorking = false;
+  state.ideaError = "";
+  state.terminalCollapsed = window.matchMedia("(max-width: 767px)").matches;
+  state.chatProjectId = projectId;
+  state.chatLoading = true;
+  state.chatMessages = [];
+  state.chatSystemPrompt = "Du hilfst mir Specs zu schreiben.";
+  state.chatStreaming = false;
+  state.chatError = "";
 }
 
 function ensureDashboardProject(project) {
   if (state.dashboardProjectId !== project.id) {
     dashboardReset(project.id);
     state.projectFilesLoading = true;
-    queueMicrotask(() => loadProjectFiles(project.id, { silent: true }));
+    queueMicrotask(() => {
+      loadProjectFiles(project.id, { silent: true });
+      loadProjectChat(project.id, { silent: true });
+    });
   }
 }
 
@@ -659,6 +679,31 @@ async function openProjectFile(projectId, filePath, options = {}) {
     }
   } catch (error) {
     state.fileError = error.message;
+    render();
+  }
+}
+
+async function loadProjectChat(projectId, options = {}) {
+  if (!options.silent) {
+    state.chatLoading = true;
+    state.chatError = "";
+    render();
+  }
+
+  try {
+    const payload = await fetchJson(`${API_BASE}/chat?projectId=${encodeURIComponent(projectId)}`);
+    if (state.dashboardProjectId !== projectId) {
+      return;
+    }
+    state.chatProjectId = projectId;
+    state.chatMessages = Array.isArray(payload.messages) ? payload.messages : [];
+    state.chatSystemPrompt = payload.systemPrompt || "Du hilfst mir Specs zu schreiben.";
+    state.chatLoading = false;
+    state.chatError = "";
+    render();
+  } catch (error) {
+    state.chatLoading = false;
+    state.chatError = error.message;
     render();
   }
 }
@@ -1034,6 +1079,23 @@ function renderStoryForm(project) {
   `;
 }
 
+function renderIdeaForm(project) {
+  if (!state.ideaFormOpen) return "";
+  return `
+    <form class="idea-form" data-idea-form data-project-id="${escapeHtml(project.id)}">
+      <label class="form-field">
+        <span>Idee</span>
+        <textarea name="idea" rows="5" required placeholder="Rohtext">${escapeHtml(state.ideaText || "")}</textarea>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="button button-secondary" data-action="cancel-idea-form" ${state.ideaWorking ? "disabled" : ""}>Abbrechen</button>
+        <button type="submit" class="button" ${state.ideaWorking ? "disabled" : ""}>Gegenlesen</button>
+      </div>
+      <p class="form-error" aria-live="polite">${escapeHtml(state.ideaError)}</p>
+    </form>
+  `;
+}
+
 function renderStoryCard(project, spec) {
   const canOpenFile = Boolean(spec.filePath);
   const moveButtons = [
@@ -1065,6 +1127,15 @@ function renderStoryCard(project, spec) {
       <p>${escapeHtml(spec.description || "Keine Beschreibung")}</p>
       <div class="badge-row">${tagBadges(spec.tags)}</div>
       <div class="story-actions">
+        <label class="ready-toggle">
+          <input
+            type="checkbox"
+            data-action="toggle-story-ready"
+            data-spec-id="${escapeHtml(spec.id)}"
+            ${spec.status === "done" ? "checked" : ""}
+          >
+          <span>Ready</span>
+        </label>
         ${canOpenFile ? `<button type="button" class="tiny-button" data-action="open-story-file" data-project-id="${escapeHtml(project.id)}" data-path="${escapeHtml(spec.filePath)}">Öffnen</button>` : ""}
         ${moveButtons}
       </div>
@@ -1087,8 +1158,12 @@ function renderStoryboard(project) {
           <p class="eyebrow">Storyboard</p>
           <h2>Stories</h2>
         </div>
-        <button type="button" class="button button-secondary" data-action="open-story-form">Neue Story</button>
+        <div class="pane-actions">
+          <button type="button" class="button button-secondary" data-action="open-idea-form">Idea→Spec</button>
+          <button type="button" class="button button-secondary" data-action="open-story-form">Neue Story</button>
+        </div>
       </div>
+      ${renderIdeaForm(project)}
       ${renderStoryForm(project)}
       <div class="kanban-board">
         ${columns.map(([status, label]) => {
@@ -1241,7 +1316,7 @@ function renderChatMessages() {
   `).join("");
 }
 
-function renderAiTerminal() {
+function renderAiTerminal(project) {
   return `
     <section class="ai-terminal ${state.terminalCollapsed ? "is-collapsed" : ""}">
       <div class="terminal-header">
@@ -1257,8 +1332,10 @@ function renderAiTerminal() {
         state.terminalCollapsed
           ? ""
           : `
-            <div class="chat-log" aria-live="polite">${renderChatMessages()}</div>
-            <form class="chat-form" data-chat-form>
+            <div class="chat-log" aria-live="polite">
+              ${state.chatLoading ? `<p class="log-muted">Chat wird geladen...</p>` : renderChatMessages()}
+            </div>
+            <form class="chat-form" data-chat-form data-project-id="${escapeHtml(project.id)}">
               <label class="form-field">
                 <span>System-Prompt</span>
                 <input name="systemPrompt" value="${escapeHtml(state.chatSystemPrompt)}">
@@ -1332,7 +1409,7 @@ function renderDetailPage(projectId) {
       ${renderFileEditor(project)}
       ${renderDashboardSide(project, loopButton)}
     </section>
-    ${renderAiTerminal()}
+    ${renderAiTerminal(project)}
   `;
 }
 
@@ -1919,7 +1996,45 @@ async function markSelectedFileDone(button, projectId) {
   }
 }
 
+async function createSpecFromIdea(form) {
+  const projectId = form.dataset.projectId;
+  const formData = new FormData(form);
+  const idea = String(formData.get("idea") || "").trim();
+  const submitButton = form.querySelector("button[type='submit']");
+  if (!idea || state.ideaWorking) return;
+
+  state.ideaText = idea;
+  state.ideaWorking = true;
+  state.ideaError = "";
+  submitButton.disabled = true;
+  render();
+
+  try {
+    const spec = await fetchJson(`${API_BASE}/specs/from-idea`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, idea }),
+    });
+    state.ideaFormOpen = false;
+    state.ideaText = "";
+    await loadData({ silent: true });
+    await loadProjectFiles(projectId, { silent: true });
+    if (spec.filePath) {
+      await openProjectFile(projectId, spec.filePath);
+    }
+  } catch (error) {
+    state.ideaError = error.message;
+    render();
+  } finally {
+    state.ideaWorking = false;
+    if (state.ideaFormOpen) {
+      render();
+    }
+  }
+}
+
 async function sendChat(form) {
+  const projectId = form.dataset.projectId || state.dashboardProjectId;
   const formData = new FormData(form);
   const message = String(formData.get("message") || "").trim();
   if (!message || state.chatStreaming) return;
@@ -1947,6 +2062,7 @@ async function sendChat(form) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        projectId,
         systemPrompt,
         messages: outgoingMessages,
       }),
@@ -1986,6 +2102,9 @@ async function sendChat(form) {
     render();
   } finally {
     state.chatStreaming = false;
+    if (projectId) {
+      await loadProjectChat(projectId, { silent: true });
+    }
     render();
   }
 }
@@ -2041,6 +2160,18 @@ document.addEventListener("click", (event) => {
     }
     if (action === "cancel-story-form") {
       state.storyFormOpen = false;
+      render();
+      return;
+    }
+    if (action === "open-idea-form") {
+      state.ideaFormOpen = true;
+      state.ideaError = "";
+      render();
+      return;
+    }
+    if (action === "cancel-idea-form") {
+      state.ideaFormOpen = false;
+      state.ideaError = "";
       render();
       return;
     }
@@ -2102,7 +2233,7 @@ document.addEventListener("click", (event) => {
   }
 
   const storyCard = event.target.closest("[data-story-id]");
-  if (storyCard && !event.target.closest("a, button") && storyCard.dataset.storyFilePath) {
+  if (storyCard && !event.target.closest("a, button, input, label, textarea, select") && storyCard.dataset.storyFilePath) {
     openProjectFile(storyCard.dataset.projectId, storyCard.dataset.storyFilePath);
   }
 });
@@ -2123,9 +2254,16 @@ document.addEventListener("input", (event) => {
       status.textContent = selectedFileIsDirty() ? "Ungespeichert" : "Gespeichert";
     }
   }
+  if (event.target.closest("form[data-idea-form]") && event.target.name === "idea") {
+    state.ideaText = event.target.value;
+  }
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("input[data-action='toggle-story-ready']")) {
+    moveStory(event.target, event.target.dataset.specId, event.target.checked ? "done" : "pending");
+    return;
+  }
   if (event.target.id === "spec-status-filter") {
     state.specTagFilter = event.target.value;
     renderSpecsPage();
@@ -2137,6 +2275,13 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
+  const ideaForm = event.target.closest("form[data-idea-form]");
+  if (ideaForm) {
+    event.preventDefault();
+    createSpecFromIdea(ideaForm);
+    return;
+  }
+
   const storyForm = event.target.closest("form[data-story-form]");
   if (storyForm) {
     event.preventDefault();
