@@ -798,11 +798,323 @@ dl {
   border-radius: 8px;
 }
 
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr) minmax(260px, 0.72fr);
+  gap: 16px;
+  margin-top: 24px;
+  align-items: start;
+}
+
+.dashboard-pane,
+.ai-terminal {
+  min-width: 0;
+  padding: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgb(23 33 31 / 7%);
+}
+
+.pane-heading,
+.terminal-header,
+.story-card-head,
+.kanban-heading,
+.file-editor-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pane-heading,
+.terminal-header {
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.story-form,
+.new-file-form {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 14px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(135px, 1fr));
+  gap: 12px;
+  min-height: 420px;
+}
+
+.kanban-column {
+  min-width: 0;
+  padding: 12px;
+  background: #f8fafb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.kanban-heading {
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.kanban-heading span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.kanban-cards {
+  display: grid;
+  gap: 10px;
+}
+
+.story-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.story-card:hover,
+.story-card:focus-within {
+  border-color: rgb(22 124 107 / 45%);
+}
+
+.story-card h3 {
+  font-size: 0.95rem;
+}
+
+.story-card p,
+.kanban-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.story-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tiny-button {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--accent-dark);
+  font-size: 0.76rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.tiny-button:hover,
+.tiny-button:focus-visible {
+  background: var(--panel-soft);
+  outline: none;
+}
+
+.tiny-button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.55fr) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 580px;
+}
+
+.file-list {
+  display: grid;
+  align-content: start;
+  max-height: 580px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.file-list-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: white;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-list-item:hover,
+.file-list-item:focus-visible,
+.file-list-item.is-active {
+  background: #eef4f8;
+  outline: none;
+}
+
+.file-list-item span,
+.file-editor-bar strong {
+  overflow: hidden;
+  font-size: 0.86rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-list-item small,
+.file-editor-bar span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.file-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.file-editor textarea {
+  width: 100%;
+  min-height: 470px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #10201d;
+  background: #fbfdfd;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.file-editor textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid rgb(22 124 107 / 16%);
+}
+
+.side-actions {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.side-history {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.side-history h3 {
+  color: var(--accent-dark);
+}
+
+.ai-terminal {
+  margin-top: 16px;
+  background: #101716;
+  border-color: #243331;
+  color: #dbe8e5;
+}
+
+.ai-terminal .eyebrow,
+.ai-terminal h2 {
+  color: #dbe8e5;
+}
+
+.ai-terminal.is-collapsed {
+  padding-bottom: 14px;
+}
+
+.chat-log {
+  display: grid;
+  gap: 12px;
+  max-height: 340px;
+  min-height: 180px;
+  overflow: auto;
+  padding: 14px;
+  background: #0b1110;
+  border: 1px solid #243331;
+  border-radius: 8px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.chat-message {
+  display: grid;
+  gap: 5px;
+}
+
+.chat-message span {
+  color: #8aa09b;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.chat-message p {
+  margin: 0;
+}
+
+.chat-user p {
+  color: #b8d9ff;
+}
+
+.chat-assistant p {
+  color: #dbe8e5;
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.35fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.chat-form .form-error {
+  grid-column: 1 / -1;
+}
+
+.chat-form .form-field {
+  color: #acc3be;
+}
+
+.chat-form input,
+.chat-form textarea {
+  background: #16211f;
+  border-color: #2d413d;
+  color: #f2faf8;
+}
+
+.chat-input-field textarea {
+  min-height: 72px;
+}
+
 @media (max-width: 760px) {
   .topbar,
   .status-panel,
   .section-heading,
-  .detail-title-row {
+  .detail-title-row,
+  .pane-heading,
+  .terminal-header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -851,13 +1163,39 @@ dl {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-layout,
+  .kanban-board,
+  .editor-workspace,
+  .chat-form {
+    grid-template-columns: 1fr;
+  }
+
+  .kanban-board {
+    min-height: 0;
+  }
+
+  .editor-workspace {
+    min-height: 0;
+  }
+
+  .file-list {
+    max-height: 260px;
+  }
+
+  .file-editor textarea {
+    min-height: 320px;
+  }
+
   .detail-actions {
     justify-content: stretch;
   }
 
   .detail-actions .button,
   .project-card-actions .button,
-  .form-actions .button {
+  .form-actions .button,
+  .side-actions .button,
+  .pane-heading .button,
+  .terminal-header .button {
     width: 100%;
   }
 }

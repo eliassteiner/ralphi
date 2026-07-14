@@ -27,6 +27,22 @@ const SPEC_TEMPLATE_FILE = path.resolve(
 const PI_MODELS_FILE = path.resolve(process.env.PI_MODELS_FILE || path.join(os.homedir(), ".pi", "agent", "models.json"));
 const LOOP_TIMEOUT_MS = Number.parseInt(process.env.LOOP_TIMEOUT_MS || `${24 * 60 * 60 * 1000}`, 10);
 const LOOP_SCRIPT_CANDIDATES = ["scripts/ralph-loop-codex.sh", "scripts/ralph-loop.sh"];
+const EDITABLE_FILE_EXTENSIONS = new Set([".md", ".json", ".sh", ".yml", ".yaml", ".toml"]);
+const EDITABLE_SKIP_DIRS = new Set([
+  ".git",
+  ".next",
+  ".cache",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  "logs",
+  "completion_log",
+]);
+const MAX_EDITABLE_FILES = 500;
+const MAX_EDITABLE_DEPTH = 6;
+const MAX_EDITABLE_FILE_BYTES = 1024 * 1024;
+const CHAT_TIMEOUT_MS = 60_000;
 const LEGACY_DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_PROVIDER = Object.freeze({
   name: "wyna",
@@ -448,7 +464,7 @@ function specFileHostPath(specFile) {
   return isInsideDirectory(VIBES_ROOT, specFile) ? toHostPath(specFile) : specFile;
 }
 
-async function parseSpecFile(specFile, id, storageType) {
+async function parseSpecFile(specFile, id, storageType, source = {}) {
   const [raw, stat] = await Promise.all([fsp.readFile(specFile, "utf8"), fsp.stat(specFile)]);
   const metadata = extractSpecMetadata(raw);
   const metadataTags = splitTags(metadata.TAGS || "");
@@ -456,12 +472,19 @@ async function parseSpecFile(specFile, id, storageType) {
   const tags = normalizeSpecTags(metadataTags, status);
   const createdAt = metadata.CREATED_AT || stat.birthtime.toISOString();
   const updatedAt = metadata.UPDATED_AT || stat.mtime.toISOString();
+  const sourceProjectId = cleanMetadataValue(source.projectId || "");
+  const projectId = cleanMetadataValue(metadata.PROJECT || sourceProjectId);
+  const projectPath = source.projectPath ? path.resolve(source.projectPath) : "";
+  const filePath =
+    projectPath && isInsideDirectory(projectPath, specFile)
+      ? path.relative(projectPath, specFile).split(path.sep).join("/")
+      : "";
 
   return {
     id,
     title: extractSpecTitle(raw, id),
     description: extractSpecDescription(raw),
-    projectId: cleanMetadataValue(metadata.PROJECT || ""),
+    projectId,
     tags,
     status: specStatusFromTags(tags) || "pending",
     statusHeading: specStatusHeading(specStatusFromTags(tags) || "pending"),
@@ -469,50 +492,85 @@ async function parseSpecFile(specFile, id, storageType) {
     updatedAt,
     path: specFile,
     hostPath: specFileHostPath(specFile),
+    filePath,
     directoryPath: storageType === "directory" ? path.dirname(specFile) : null,
     storageType,
     raw,
   };
 }
 
-async function readAllSpecs() {
-  let entries = [];
-  try {
-    entries = await fsp.readdir(SPECS_ROOT, { withFileTypes: true });
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
+async function specRoots() {
+  const roots = [
+    {
+      specsPath: SPECS_ROOT,
+      projectId: RALPH_PROJECT_ROOT === APP_ROOT ? "ralphi" : slugify(path.basename(RALPH_PROJECT_ROOT)),
+      projectPath: RALPH_PROJECT_ROOT,
+    },
+  ];
+  const seen = new Set([path.resolve(SPECS_ROOT)]);
+
+  const projects = await loadProjects().catch(() => []);
+  for (const project of projects) {
+    if ((!project.imported && project.id !== "ralphi") || !project.exists || !project.path) {
+      continue;
     }
-    throw error;
+
+    const specsPath = path.resolve(project.path, "specs");
+    if (seen.has(specsPath)) {
+      continue;
+    }
+
+    seen.add(specsPath);
+    roots.push({
+      specsPath,
+      projectId: project.id,
+      projectPath: project.path,
+    });
   }
 
+  return roots;
+}
+
+async function readAllSpecs() {
   const seen = new Set();
   const specs = [];
 
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) {
-      continue;
-    }
-
-    if (entry.isDirectory()) {
-      const id = entry.name;
-      const specFile = path.resolve(SPECS_ROOT, id, "spec.md");
-      if (seen.has(id) || !isInsideDirectory(SPECS_ROOT, specFile) || !(await pathExists(specFile))) {
+  for (const root of await specRoots()) {
+    let entries = [];
+    try {
+      entries = await fsp.readdir(root.specsPath, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") {
         continue;
       }
-      seen.add(id);
-      specs.push(await parseSpecFile(specFile, id, "directory"));
-      continue;
+      throw error;
     }
 
-    if (entry.isFile() && entry.name.endsWith(".md")) {
-      const id = entry.name.replace(/\.md$/i, "");
-      const specFile = path.resolve(SPECS_ROOT, entry.name);
-      if (seen.has(id) || !isInsideDirectory(SPECS_ROOT, specFile)) {
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) {
         continue;
       }
-      seen.add(id);
-      specs.push(await parseSpecFile(specFile, id, "file"));
+
+      if (entry.isDirectory()) {
+        const id = entry.name;
+        const specFile = path.resolve(root.specsPath, id, "spec.md");
+        if (seen.has(id) || !isInsideDirectory(root.specsPath, specFile) || !(await pathExists(specFile))) {
+          continue;
+        }
+        seen.add(id);
+        specs.push(await parseSpecFile(specFile, id, "directory", root));
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        const id = entry.name.replace(/\.md$/i, "");
+        const specFile = path.resolve(root.specsPath, entry.name);
+        if (seen.has(id) || !isInsideDirectory(root.specsPath, specFile)) {
+          continue;
+        }
+        seen.add(id);
+        specs.push(await parseSpecFile(specFile, id, "file", root));
+      }
     }
   }
 
@@ -569,6 +627,7 @@ function serializeSpec(spec, projects = []) {
     createdAt: spec.createdAt,
     updatedAt: spec.updatedAt,
     hostPath: spec.hostPath,
+    filePath: spec.filePath,
     content: spec.raw,
   };
 }
@@ -788,9 +847,14 @@ function updateSpecMarkdown(spec, fields) {
   return `${raw.trimEnd()}\n`;
 }
 
+async function isAllowedSpecPath(specFile) {
+  const resolved = path.resolve(specFile);
+  return (await specRoots()).some((root) => isInsideDirectory(root.specsPath, resolved));
+}
+
 async function writeSpecMarkdown(specFile, markdown) {
   const resolved = path.resolve(specFile);
-  if (!isInsideDirectory(SPECS_ROOT, resolved)) {
+  if (!(await isAllowedSpecPath(resolved))) {
     throw validationError("Invalid spec path");
   }
 
@@ -807,9 +871,14 @@ async function createSpec(payload) {
   }
 
   const projectId = await validateSpecProject(payload.projectId || "");
+  const project = projectId ? findProject(await loadProjects(), projectId) : null;
+  if (projectId && (!project?.exists || !project.path || !isInsideVibesRoot(project.path))) {
+    throw validationError("Project folder does not exist", 400);
+  }
   const tags = normalizeSpecTags(payload.tags || [], payload.status || "pending");
   const id = await createSpecId(title);
-  const specFile = path.resolve(SPECS_ROOT, id, "spec.md");
+  const specRoot = project ? path.join(project.path, "specs") : SPECS_ROOT;
+  const specFile = path.resolve(specRoot, id, "spec.md");
   const now = new Date().toISOString();
   const markdown = buildNewSpecMarkdown({
     title,
@@ -860,12 +929,12 @@ async function updateSpecTags(spec, tags) {
 }
 
 async function deleteSpec(spec) {
-  if (spec.storageType === "directory" && spec.directoryPath && isInsideDirectory(SPECS_ROOT, spec.directoryPath)) {
+  if (spec.storageType === "directory" && spec.directoryPath && (await isAllowedSpecPath(spec.path))) {
     await fsp.rm(spec.directoryPath, { recursive: true, force: true });
     return;
   }
 
-  if (isInsideDirectory(SPECS_ROOT, spec.path)) {
+  if (await isAllowedSpecPath(spec.path)) {
     await fsp.rm(spec.path, { force: true });
   }
 }
@@ -1279,6 +1348,134 @@ function writeSse(res, eventName, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function normalizeChatMessages(payload) {
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const cleanMessages = [];
+  const systemPrompt = String(payload.systemPrompt || "").trim();
+
+  if (systemPrompt) {
+    cleanMessages.push({ role: "system", content: systemPrompt.slice(0, 12000) });
+  }
+
+  for (const message of messages.slice(-40)) {
+    if (!isPlainObject(message)) {
+      continue;
+    }
+    const role = ["system", "user", "assistant"].includes(message.role) ? message.role : "user";
+    const content = String(message.content || "").trim();
+    if (content) {
+      cleanMessages.push({ role, content: content.slice(0, 20000) });
+    }
+  }
+
+  if (!cleanMessages.some((message) => message.role === "user")) {
+    throw validationError("At least one user message is required");
+  }
+
+  return cleanMessages;
+}
+
+function chatCompletionsUrl(baseUrl) {
+  const clean = String(baseUrl || "").replace(/\/+$/, "");
+  if (/\/chat\/completions$/i.test(clean)) {
+    return clean;
+  }
+  return `${clean}/chat/completions`;
+}
+
+function writeChatError(res, message) {
+  if (!res.destroyed) {
+    writeSse(res, "error", { message });
+  }
+}
+
+async function streamChat(req, res) {
+  if (req.method !== "POST") {
+    sendError(res, 405, "Method not allowed");
+    return;
+  }
+
+  const payload = await readJsonBody(req);
+  const settings = await loadSettings();
+  const provider = settings.provider;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("Chat request timed out")), CHAT_TIMEOUT_MS);
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  res.write(": connected\n\n");
+
+  res.on("close", () => controller.abort());
+
+  try {
+    const messages = normalizeChatMessages(payload);
+    const upstream = await fetch(chatCompletionsUrl(provider.baseUrl), {
+      method: "POST",
+      headers: {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+        ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        messages,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!upstream.ok) {
+      const errorText = await upstream.text().catch(() => "");
+      writeChatError(res, errorText || `Provider returned ${upstream.status}`);
+      return;
+    }
+
+    let buffer = "";
+    const decoder = new TextDecoder();
+    for await (const chunk of upstream.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) {
+          continue;
+        }
+
+        const data = trimmed.replace(/^data:\s*/, "");
+        if (data === "[DONE]") {
+          writeSse(res, "done", { ok: true });
+          return;
+        }
+
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
+        }
+
+        const content = parsed?.choices?.[0]?.delta?.content || "";
+        for (const character of Array.from(content)) {
+          writeSse(res, "delta", { content: character });
+        }
+      }
+    }
+
+    writeSse(res, "done", { ok: true });
+  } catch (error) {
+    writeChatError(res, error.name === "AbortError" ? "Chat request timed out" : error.message || "Chat failed");
+  } finally {
+    clearTimeout(timeout);
+    res.end();
+  }
+}
+
 function broadcastLoop(loop, eventName, payload) {
   const clients = streamClients.get(loop.id);
   if (!clients) {
@@ -1671,6 +1868,164 @@ function findProject(projects, key) {
   );
 }
 
+function ensureEditableProject(project) {
+  if (!project.exists || !project.path || !isInsideVibesRoot(project.path)) {
+    throw validationError("Project folder does not exist", 400);
+  }
+}
+
+function normalizeProjectFilePath(filePath) {
+  const clean = String(filePath || "")
+    .replace(/\0/g, "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .trim();
+
+  if (!clean) {
+    throw validationError("File path is required");
+  }
+
+  const normalized = path.posix.normalize(clean);
+  if (
+    normalized === "." ||
+    normalized.startsWith("../") ||
+    normalized === ".." ||
+    path.posix.isAbsolute(normalized)
+  ) {
+    throw validationError("Invalid file path");
+  }
+
+  return normalized;
+}
+
+function editableFileExtension(filePath) {
+  return path.extname(filePath).toLowerCase();
+}
+
+function isEditableFilePath(filePath) {
+  return EDITABLE_FILE_EXTENSIONS.has(editableFileExtension(filePath));
+}
+
+function resolveProjectFile(project, filePath) {
+  ensureEditableProject(project);
+  const relativePath = normalizeProjectFilePath(filePath);
+  if (!isEditableFilePath(relativePath)) {
+    throw validationError("Unsupported file type");
+  }
+
+  const projectRoot = path.resolve(project.path);
+  const resolved = path.resolve(projectRoot, relativePath);
+  if (!isInsideDirectory(projectRoot, resolved)) {
+    throw validationError("Invalid file path");
+  }
+
+  return { projectRoot, relativePath, resolved };
+}
+
+async function walkEditableFiles(projectRoot, directoryPath, depth, files) {
+  if (depth > MAX_EDITABLE_DEPTH || files.length >= MAX_EDITABLE_FILES) {
+    return;
+  }
+
+  let entries = [];
+  try {
+    entries = await fsp.readdir(directoryPath, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    if (files.length >= MAX_EDITABLE_FILES) {
+      return;
+    }
+
+    const fullPath = path.join(directoryPath, entry.name);
+    const relativePath = path.relative(projectRoot, fullPath).split(path.sep).join("/");
+
+    if (entry.isDirectory()) {
+      if (!EDITABLE_SKIP_DIRS.has(entry.name)) {
+        await walkEditableFiles(projectRoot, fullPath, depth + 1, files);
+      }
+      continue;
+    }
+
+    if (!entry.isFile() || !isEditableFilePath(entry.name)) {
+      continue;
+    }
+
+    try {
+      const stat = await fsp.stat(fullPath);
+      files.push({
+        path: relativePath,
+        name: entry.name,
+        directory: path.posix.dirname(relativePath) === "." ? "" : path.posix.dirname(relativePath),
+        extension: editableFileExtension(entry.name),
+        size: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+        hostPath: toHostPath(fullPath),
+      });
+    } catch {
+      // Files can disappear while scanning.
+    }
+  }
+}
+
+async function listProjectFiles(project) {
+  ensureEditableProject(project);
+  const projectRoot = path.resolve(project.path);
+  const files = [];
+  await walkEditableFiles(projectRoot, projectRoot, 0, files);
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function readProjectFile(project, filePath) {
+  const file = resolveProjectFile(project, filePath);
+  const stat = await fsp.stat(file.resolved).catch((error) => {
+    if (error.code === "ENOENT") {
+      throw validationError("File not found", 404);
+    }
+    throw error;
+  });
+
+  if (!stat.isFile()) {
+    throw validationError("Path is not a file", 400);
+  }
+  if (stat.size > MAX_EDITABLE_FILE_BYTES) {
+    throw validationError("File is too large to edit", 413);
+  }
+
+  return {
+    path: file.relativePath,
+    content: await fsp.readFile(file.resolved, "utf8"),
+    size: stat.size,
+    updatedAt: stat.mtime.toISOString(),
+    hostPath: toHostPath(file.resolved),
+  };
+}
+
+async function writeProjectFile(project, payload, options = {}) {
+  const file = resolveProjectFile(project, payload.path);
+  const content = String(payload.content ?? "");
+  if (Buffer.byteLength(content, "utf8") > MAX_EDITABLE_FILE_BYTES) {
+    throw validationError("File is too large to edit", 413);
+  }
+
+  const exists = await pathExists(file.resolved);
+  if (options.create && exists) {
+    throw validationError("File already exists", 409);
+  }
+  if (!options.create && !exists) {
+    throw validationError("File not found", 404);
+  }
+
+  await fsp.mkdir(path.dirname(file.resolved), { recursive: true });
+  const tmpFile = `${file.resolved}.${process.pid}.tmp`;
+  await fsp.writeFile(tmpFile, content, "utf8");
+  await fsp.rename(tmpFile, file.resolved);
+  return readProjectFile(project, file.relativePath);
+}
+
 async function handleSettingsApi(req, res, segments) {
   if (segments.length !== 2) {
     sendError(res, 404, "API endpoint not found");
@@ -1695,6 +2050,8 @@ async function handleSettingsApi(req, res, segments) {
 }
 
 async function handleProjectsApi(req, res, segments) {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
   if (req.method === "GET" && segments.length === 2) {
     sendJson(res, 200, await loadProjects());
     return;
@@ -1721,6 +2078,32 @@ async function handleProjectsApi(req, res, segments) {
 
   if (req.method === "GET" && segments.length === 3) {
     sendJson(res, 200, project);
+    return;
+  }
+
+  if (req.method === "GET" && segments.length === 4 && segments[3] === "files") {
+    sendJson(res, 200, {
+      projectId: project.id,
+      files: await listProjectFiles(project),
+      maxFiles: MAX_EDITABLE_FILES,
+      supportedExtensions: [...EDITABLE_FILE_EXTENSIONS].sort(),
+    });
+    return;
+  }
+
+  if (req.method === "POST" && segments.length === 4 && segments[3] === "files") {
+    const file = await writeProjectFile(project, await readJsonBody(req), { create: true });
+    sendJson(res, 201, file);
+    return;
+  }
+
+  if (req.method === "GET" && segments.length === 5 && segments[3] === "files" && segments[4] === "content") {
+    sendJson(res, 200, await readProjectFile(project, requestUrl.searchParams.get("path") || ""));
+    return;
+  }
+
+  if (req.method === "PUT" && segments.length === 5 && segments[3] === "files" && segments[4] === "content") {
+    sendJson(res, 200, await writeProjectFile(project, await readJsonBody(req)));
     return;
   }
 
@@ -1952,6 +2335,11 @@ async function handleApi(req, res, apiPath) {
 
   if (segments[1] === "tags") {
     await handleTagsApi(req, res, segments);
+    return;
+  }
+
+  if (segments[1] === "chat") {
+    await streamChat(req, res);
     return;
   }
 

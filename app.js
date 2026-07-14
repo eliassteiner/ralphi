@@ -21,6 +21,22 @@ const state = {
   specTagFilter: "",
   specProjectFilter: "",
   specForm: null,
+  storyFormOpen: false,
+  dashboardProjectId: "",
+  projectFiles: [],
+  projectFilesLoading: false,
+  selectedFilePath: "",
+  selectedFileContent: "",
+  selectedFileOriginal: "",
+  selectedFileMeta: null,
+  fileNotice: "",
+  fileError: "",
+  newFileOpen: false,
+  terminalCollapsed: false,
+  chatMessages: [],
+  chatSystemPrompt: "Du hilfst mir Specs zu schreiben.",
+  chatStreaming: false,
+  chatError: "",
   settingsNotice: "",
   settingsError: "",
   loading: true,
@@ -544,6 +560,171 @@ function activeLoopForProject(projectId) {
   return state.loops.find((loop) => loop.projectId === projectId && loop.status === "running");
 }
 
+function specBelongsToProject(spec, project) {
+  const candidates = [project.id, project.directoryName, project.name]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+  return candidates.includes(String(spec.projectId || "").toLowerCase());
+}
+
+function specsForProject(project) {
+  return state.specs.filter((spec) => specBelongsToProject(spec, project));
+}
+
+function storyStatusLabel(status) {
+  if (status === "running") return "In Arbeit";
+  if (status === "done") return "Fertig";
+  return "Offen";
+}
+
+function storyPriority(spec) {
+  const explicit = (spec.tags || []).find((tag) => /^(p[0-3]|prio-[a-z]+|priority-[a-z]+)$/i.test(tag));
+  if (explicit) return explicit;
+  const number = String(spec.id || "").match(/^(\d{3})/);
+  return number ? `#${number[1]}` : "normal";
+}
+
+function dashboardReset(projectId) {
+  state.dashboardProjectId = projectId;
+  state.projectFiles = [];
+  state.projectFilesLoading = false;
+  state.selectedFilePath = "";
+  state.selectedFileContent = "";
+  state.selectedFileOriginal = "";
+  state.selectedFileMeta = null;
+  state.fileNotice = "";
+  state.fileError = "";
+  state.newFileOpen = false;
+  state.storyFormOpen = false;
+}
+
+function ensureDashboardProject(project) {
+  if (state.dashboardProjectId !== project.id) {
+    dashboardReset(project.id);
+    state.projectFilesLoading = true;
+    queueMicrotask(() => loadProjectFiles(project.id, { silent: true }));
+  }
+}
+
+async function loadProjectFiles(projectId, options = {}) {
+  if (!options.silent) {
+    state.projectFilesLoading = true;
+    state.fileError = "";
+    render();
+  }
+
+  try {
+    const payload = await fetchJson(`${API_BASE}/projects/${encodeURIComponent(projectId)}/files`);
+    state.projectFiles = payload.files || [];
+    state.projectFilesLoading = false;
+
+    const stillSelected = state.projectFiles.some((file) => file.path === state.selectedFilePath);
+    if (!state.selectedFilePath || !stillSelected) {
+      const firstSpec = state.projectFiles.find((file) => /^specs\/.+\/spec\.md$/i.test(file.path));
+      const firstFile = firstSpec || state.projectFiles[0];
+      if (firstFile) {
+        await openProjectFile(projectId, firstFile.path, { silent: true });
+      }
+    } else if (!options.silent) {
+      render();
+    }
+    if (options.silent) {
+      render();
+    }
+  } catch (error) {
+    state.projectFilesLoading = false;
+    state.fileError = error.message;
+    render();
+  }
+}
+
+async function openProjectFile(projectId, filePath, options = {}) {
+  state.fileError = "";
+  state.fileNotice = "";
+  if (!options.silent) {
+    state.selectedFilePath = filePath;
+    render();
+  }
+
+  try {
+    const file = await fetchJson(
+      `${API_BASE}/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(filePath)}`,
+    );
+    state.selectedFilePath = file.path;
+    state.selectedFileContent = file.content;
+    state.selectedFileOriginal = file.content;
+    state.selectedFileMeta = file;
+    if (!options.silent) {
+      render();
+    }
+  } catch (error) {
+    state.fileError = error.message;
+    render();
+  }
+}
+
+function selectedFileIsDirty() {
+  return state.selectedFileContent !== state.selectedFileOriginal;
+}
+
+function selectedSpecForProject(project) {
+  if (!state.selectedFilePath) return null;
+  return specsForProject(project).find((spec) => spec.filePath === state.selectedFilePath) || null;
+}
+
+function upsertDoneMarkers(content) {
+  let next = String(content || "");
+  if (/^<!--\s*TAGS:/m.test(next)) {
+    next = next.replace(/^<!--\s*TAGS:\s*([^\n]*?)\s*-->\s*$/m, (_match, tags) => {
+      const cleanTags = tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .filter((tag) => !["pending", "running", "done"].includes(tag));
+      return `<!-- TAGS: done${cleanTags.length ? `, ${cleanTags.join(", ")}` : ""} -->`;
+    });
+  } else {
+    const lines = next.split(/\n/);
+    const insertIndex = lines[0]?.startsWith("# ") ? 1 : 0;
+    lines.splice(insertIndex, 0, "<!-- TAGS: done -->");
+    next = lines.join("\n");
+  }
+
+  if (/^##\s+Status:/m.test(next)) {
+    next = next.replace(/^##\s+Status:.*$/m, "## Status: COMPLETE");
+  } else if (/<!--\s*NR_OF_TRIES:/m.test(next)) {
+    next = next.replace(/<!--\s*NR_OF_TRIES:/m, "## Status: COMPLETE\n<!-- NR_OF_TRIES:");
+  } else {
+    next = `${next.trimEnd()}\n\n## Status: COMPLETE\n<!-- NR_OF_TRIES: 0 -->\n`;
+  }
+
+  return next;
+}
+
+function parseSseEvents(buffer) {
+  const events = [];
+  const lines = buffer.split(/\r?\n/);
+  const rest = lines.pop() || "";
+  let eventName = "message";
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+    if (line.startsWith("event:")) {
+      eventName = line.replace(/^event:\s*/, "").trim() || "message";
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      const data = line.replace(/^data:\s*/, "");
+      events.push({ eventName, data });
+      eventName = "message";
+    }
+  }
+
+  return { events, rest };
+}
+
 function projectCard(project) {
   const action = project.imported ? "unwatch" : "import";
   const actionLabel = project.imported ? "Nicht mehr beobachten" : "Importieren";
@@ -828,6 +1009,275 @@ function renderProjectLoopHistory(project) {
   `;
 }
 
+function renderStoryForm(project) {
+  if (!state.storyFormOpen) return "";
+  return `
+    <form class="story-form" data-story-form data-project-id="${escapeHtml(project.id)}">
+      <label class="form-field">
+        <span>Titel</span>
+        <input name="title" required maxlength="140" placeholder="Neue Story">
+      </label>
+      <label class="form-field">
+        <span>Beschreibung</span>
+        <textarea name="description" rows="4" placeholder="Was soll Ralph erledigen?"></textarea>
+      </label>
+      <label class="form-field">
+        <span>Tags</span>
+        <input name="tags" value="pending" placeholder="pending, p1, ui">
+      </label>
+      <div class="form-actions">
+        <button type="button" class="button button-secondary" data-action="cancel-story-form">Abbrechen</button>
+        <button type="submit" class="button">Story speichern</button>
+      </div>
+      <p class="form-error" aria-live="polite"></p>
+    </form>
+  `;
+}
+
+function renderStoryCard(project, spec) {
+  const canOpenFile = Boolean(spec.filePath);
+  const moveButtons = [
+    ["pending", "Offen"],
+    ["running", "In Arbeit"],
+    ["done", "Fertig"],
+  ].map(([status, label]) => `
+    <button
+      type="button"
+      class="tiny-button"
+      data-action="move-story"
+      data-spec-id="${escapeHtml(spec.id)}"
+      data-status="${escapeHtml(status)}"
+      ${spec.status === status ? "disabled" : ""}
+    >${escapeHtml(label)}</button>
+  `).join("");
+
+  return `
+    <article
+      class="story-card"
+      data-story-id="${escapeHtml(spec.id)}"
+      data-story-file-path="${escapeHtml(spec.filePath || "")}"
+      data-project-id="${escapeHtml(project.id)}"
+    >
+      <div class="story-card-head">
+        <h3>${escapeHtml(spec.title)}</h3>
+        ${badge("Priorität", storyPriority(spec), "muted")}
+      </div>
+      <p>${escapeHtml(spec.description || "Keine Beschreibung")}</p>
+      <div class="badge-row">${tagBadges(spec.tags)}</div>
+      <div class="story-actions">
+        ${canOpenFile ? `<button type="button" class="tiny-button" data-action="open-story-file" data-project-id="${escapeHtml(project.id)}" data-path="${escapeHtml(spec.filePath)}">Öffnen</button>` : ""}
+        ${moveButtons}
+      </div>
+    </article>
+  `;
+}
+
+function renderStoryboard(project) {
+  const stories = specsForProject(project);
+  const columns = [
+    ["pending", "Offen"],
+    ["running", "In Arbeit"],
+    ["done", "Fertig"],
+  ];
+
+  return `
+    <article class="dashboard-pane storyboard-pane">
+      <div class="pane-heading">
+        <div>
+          <p class="eyebrow">Storyboard</p>
+          <h2>Stories</h2>
+        </div>
+        <button type="button" class="button button-secondary" data-action="open-story-form">Neue Story</button>
+      </div>
+      ${renderStoryForm(project)}
+      <div class="kanban-board">
+        ${columns.map(([status, label]) => {
+          const columnStories = stories.filter((spec) => (spec.status || "pending") === status);
+          return `
+            <section class="kanban-column" aria-labelledby="kanban-${escapeHtml(status)}">
+              <div class="kanban-heading">
+                <h3 id="kanban-${escapeHtml(status)}">${escapeHtml(label)}</h3>
+                <span>${columnStories.length}</span>
+              </div>
+              <div class="kanban-cards">
+                ${
+                  columnStories.length
+                    ? columnStories.map((spec) => renderStoryCard(project, spec)).join("")
+                    : `<p class="kanban-empty">Keine Stories</p>`
+                }
+              </div>
+            </section>
+          `;
+        }).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderFileBrowser(project) {
+  if (state.projectFilesLoading) {
+    return `<p class="muted-text">Dateien werden geladen...</p>`;
+  }
+  if (state.fileError && !state.projectFiles.length) {
+    return `<p class="form-error">${escapeHtml(state.fileError)}</p>`;
+  }
+  if (!state.projectFiles.length) {
+    return `<p class="muted-text">Keine editierbaren Dateien gefunden.</p>`;
+  }
+
+  return `
+    <div class="file-list" role="list">
+      ${state.projectFiles.map((file) => `
+        <button
+          type="button"
+          class="file-list-item ${file.path === state.selectedFilePath ? "is-active" : ""}"
+          data-action="open-project-file"
+          data-project-id="${escapeHtml(project.id)}"
+          data-path="${escapeHtml(file.path)}"
+          title="${escapeHtml(file.path)}"
+        >
+          <span>${escapeHtml(file.path)}</span>
+          <small>${escapeHtml(file.extension.replace(".", ""))} · ${Math.ceil(file.size / 1024)} KB</small>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderNewFileForm(project) {
+  if (!state.newFileOpen) return "";
+  return `
+    <form class="new-file-form" data-new-file-form data-project-id="${escapeHtml(project.id)}">
+      <label class="form-field">
+        <span>Pfad</span>
+        <input name="path" required placeholder="specs/007-feature/spec.md">
+      </label>
+      <div class="form-actions">
+        <button type="button" class="button button-secondary" data-action="cancel-new-file">Abbrechen</button>
+        <button type="submit" class="button">Neue Datei</button>
+      </div>
+      <p class="form-error" aria-live="polite"></p>
+    </form>
+  `;
+}
+
+function renderFileEditor(project) {
+  const selectedSpec = selectedSpecForProject(project);
+  return `
+    <article class="dashboard-pane editor-pane">
+      <div class="pane-heading">
+        <div>
+          <p class="eyebrow">Dateien</p>
+          <h2>Editor</h2>
+        </div>
+        <button type="button" class="button button-secondary" data-action="open-new-file">Neue Datei</button>
+      </div>
+      ${renderNewFileForm(project)}
+      <div class="editor-workspace">
+        ${renderFileBrowser(project)}
+        <form class="file-editor" data-file-editor-form data-project-id="${escapeHtml(project.id)}">
+          <div class="file-editor-bar">
+            <strong>${escapeHtml(state.selectedFilePath || "Keine Datei gewählt")}</strong>
+            <span>${selectedFileIsDirty() ? "Ungespeichert" : "Gespeichert"}</span>
+          </div>
+          <textarea
+            id="project-file-content"
+            name="content"
+            spellcheck="false"
+            ${state.selectedFilePath ? "" : "disabled"}
+          >${escapeHtml(state.selectedFileContent)}</textarea>
+          <div class="form-actions">
+            ${
+              state.selectedFilePath && /\.md$/i.test(state.selectedFilePath)
+                ? `<button type="button" class="button button-secondary" data-action="mark-file-done" data-project-id="${escapeHtml(project.id)}" ${selectedSpec?.status === "done" ? "disabled" : ""}>Als done markieren</button>`
+                : ""
+            }
+            <button type="submit" class="button" ${state.selectedFilePath ? "" : "disabled"}>Speichern</button>
+          </div>
+          <p class="notice" aria-live="polite">${escapeHtml(state.fileNotice)}</p>
+          <p class="form-error" aria-live="polite">${escapeHtml(state.fileError)}</p>
+        </form>
+      </div>
+    </article>
+  `;
+}
+
+function renderDashboardSide(project, loopButton) {
+  return `
+    <aside class="dashboard-pane side-pane">
+      <div class="pane-heading">
+        <div>
+          <p class="eyebrow">Projekt</p>
+          <h2>Status</h2>
+        </div>
+      </div>
+      <dl>
+        ${detailRow("Ordner", project.hostPath ? `<a class="text-link" href="${fileHref(project.hostPath)}">${escapeHtml(project.hostPath)}</a>` : "Nicht gefunden")}
+        ${detailRow("Status", escapeHtml(project.sourceStatus || project.status))}
+        ${detailRow("Ralph", escapeHtml(yesNo(project.ralph)))}
+        ${detailRow("Docker", escapeHtml(yesNo(project.docker)))}
+        ${detailRow("Proxy", escapeHtml(yesNo(project.proxy)))}
+        ${detailRow("Provider", escapeHtml(providerSummary()))}
+      </dl>
+      <div class="side-actions">${loopButton}</div>
+      <section class="side-history">
+        <h3>Loop-Historie</h3>
+        ${renderProjectLoopHistory(project)}
+      </section>
+    </aside>
+  `;
+}
+
+function renderChatMessages() {
+  if (!state.chatMessages.length) {
+    return `<p class="log-muted">Noch keine Nachrichten.</p>`;
+  }
+
+  return state.chatMessages.map((message) => `
+    <div class="chat-message chat-${escapeHtml(message.role)}">
+      <span>${escapeHtml(message.role === "assistant" ? "AI" : "Du")}</span>
+      <p>${escapeHtml(message.content || (state.chatStreaming && message.role === "assistant" ? "..." : ""))}</p>
+    </div>
+  `).join("");
+}
+
+function renderAiTerminal() {
+  return `
+    <section class="ai-terminal ${state.terminalCollapsed ? "is-collapsed" : ""}">
+      <div class="terminal-header">
+        <div>
+          <p class="eyebrow">AI-Terminal</p>
+          <h2>${escapeHtml(providerSummary())}</h2>
+        </div>
+        <button type="button" class="button button-secondary" data-action="toggle-terminal">
+          ${state.terminalCollapsed ? "Öffnen" : "Einklappen"}
+        </button>
+      </div>
+      ${
+        state.terminalCollapsed
+          ? ""
+          : `
+            <div class="chat-log" aria-live="polite">${renderChatMessages()}</div>
+            <form class="chat-form" data-chat-form>
+              <label class="form-field">
+                <span>System-Prompt</span>
+                <input name="systemPrompt" value="${escapeHtml(state.chatSystemPrompt)}">
+              </label>
+              <label class="form-field chat-input-field">
+                <span>Nachricht</span>
+                <textarea name="message" rows="2" required ${state.chatStreaming ? "disabled" : ""}></textarea>
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="button" ${state.chatStreaming ? "disabled" : ""}>Senden</button>
+              </div>
+              <p class="form-error" aria-live="polite">${escapeHtml(state.chatError)}</p>
+            </form>
+          `
+      }
+    </section>
+  `;
+}
+
 function renderDetailPage(projectId) {
   if (state.loading) {
     app.innerHTML = `<section class="loading-panel" aria-live="polite">Loading project...</section>`;
@@ -845,6 +1295,7 @@ function renderDetailPage(projectId) {
     return;
   }
 
+  ensureDashboardProject(project);
   const activeLoop = activeLoopForProject(project.id);
   const loopButton = project.imported
     ? activeLoop
@@ -860,12 +1311,11 @@ function renderDetailPage(projectId) {
       <a class="text-link" href="${href("/projects")}" data-route>Back to projects</a>
       <div class="detail-title-row">
         <div>
-          <p class="eyebrow">${escapeHtml(project.status)}</p>
+          <p class="eyebrow">Projekt-Dashboard</p>
           <h1>${escapeHtml(project.name)}</h1>
           <p class="summary">${escapeHtml(project.description || "Keine Beschreibung in PROJECTS.md")}</p>
         </div>
         <div class="detail-actions">
-          ${loopButton}
           ${
             project.imported
               ? `<button type="button" class="button button-secondary" data-action="unwatch" data-project-id="${escapeHtml(project.id)}">Nicht mehr beobachten</button>`
@@ -877,44 +1327,12 @@ function renderDetailPage(projectId) {
       <p id="detail-notice" class="notice" aria-live="polite"></p>
     </section>
 
-    <section class="detail-layout">
-      <article class="detail-section">
-        <h2>PROJECTS.md</h2>
-        <dl>
-          ${detailRow("Ordner", project.hostPath ? `<a class="text-link" href="${fileHref(project.hostPath)}">${escapeHtml(project.hostPath)}</a>` : "Nicht gefunden")}
-          ${detailRow("Status", escapeHtml(project.sourceStatus || project.status))}
-          ${detailRow("Quelle", escapeHtml(project.source))}
-          ${detailRow("Dateisystem", escapeHtml(project.exists ? "Ordner existiert" : "Ordner fehlt"))}
-        </dl>
-      </article>
-
-      <article class="detail-section">
-        <h2>Ralph Setup</h2>
-        <dl>
-          ${detailRow("AGENTS.md", escapeHtml(yesNo(project.setup?.ralph?.hasAgents)))}
-          ${detailRow("CLAUDE.md", escapeHtml(yesNo(project.setup?.ralph?.hasClaude)))}
-          ${detailRow("Constitution", escapeHtml(yesNo(project.setup?.ralph?.hasConstitution)))}
-          ${detailRow("Specs", escapeHtml(yesNo(project.setup?.ralph?.hasSpecs)))}
-        </dl>
-        ${renderSpecs(project)}
-      </article>
-
-      <article class="detail-section">
-        <h2>Docker / Proxy</h2>
-        <dl>
-          ${detailRow("Docker-Compose-Status", escapeHtml(project.setup?.docker?.composeStatus || "Unknown"))}
-          ${detailRow("Docker Files", escapeHtml((project.setup?.docker?.files || []).join(", ") || "Keine"))}
-          ${detailRow("Proxy", escapeHtml(project.proxy ? "Ja" : "Nei"))}
-          ${detailRow("Proxy-Quelle", escapeHtml(project.setup?.proxy?.source || "not-detected"))}
-          ${detailRow("Proxy-Route", escapeHtml(project.setup?.proxy?.route || "Keine Route erkannt"))}
-        </dl>
-      </article>
-
-      <article class="detail-section">
-        <h2>Loop-Historie</h2>
-        ${renderProjectLoopHistory(project)}
-      </article>
+    <section class="dashboard-layout">
+      ${renderStoryboard(project)}
+      ${renderFileEditor(project)}
+      ${renderDashboardSide(project, loopButton)}
     </section>
+    ${renderAiTerminal()}
   `;
 }
 
@@ -1329,6 +1747,249 @@ async function deleteSpec(button, specId) {
   }
 }
 
+function defaultContentForPath(filePath) {
+  const extension = filePath.split(".").pop().toLowerCase();
+  if (extension === "json") return "{\n  \n}\n";
+  if (extension === "sh") return "#!/usr/bin/env bash\nset -euo pipefail\n";
+  if (extension === "yml" || extension === "yaml") return "---\n";
+  if (extension === "toml") return "";
+  return `# ${filePath.split("/").pop().replace(/\.md$/i, "")}\n`;
+}
+
+async function saveProjectFile(form) {
+  const projectId = form.dataset.projectId;
+  const submitButton = form.querySelector("button[type='submit']");
+  const textarea = form.querySelector("textarea[name='content']");
+  if (!state.selectedFilePath || !textarea) return;
+
+  submitButton.disabled = true;
+  state.fileError = "";
+  state.fileNotice = "Speichern...";
+  state.selectedFileContent = textarea.value;
+  render();
+
+  try {
+    const file = await fetchJson(`${API_BASE}/projects/${encodeURIComponent(projectId)}/files/content`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        path: state.selectedFilePath,
+        content: state.selectedFileContent,
+      }),
+    });
+    state.selectedFilePath = file.path;
+    state.selectedFileContent = file.content;
+    state.selectedFileOriginal = file.content;
+    state.selectedFileMeta = file;
+    state.fileNotice = "Gespeichert.";
+    await loadProjectFiles(projectId, { silent: true });
+    await loadData({ silent: true });
+  } catch (error) {
+    state.fileError = error.message;
+    render();
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function createProjectFile(form) {
+  const projectId = form.dataset.projectId;
+  const errorLine = form.querySelector(".form-error");
+  const submitButton = form.querySelector("button[type='submit']");
+  const formData = new FormData(form);
+  const filePath = String(formData.get("path") || "").trim();
+  submitButton.disabled = true;
+  if (errorLine) errorLine.textContent = "";
+
+  try {
+    const file = await fetchJson(`${API_BASE}/projects/${encodeURIComponent(projectId)}/files`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        path: filePath,
+        content: defaultContentForPath(filePath),
+      }),
+    });
+    state.newFileOpen = false;
+    await loadProjectFiles(projectId, { silent: true });
+    await openProjectFile(projectId, file.path);
+  } catch (error) {
+    if (errorLine) {
+      errorLine.textContent = error.message;
+    } else {
+      state.fileError = error.message;
+      render();
+    }
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function createStory(form) {
+  const projectId = form.dataset.projectId;
+  const submitButton = form.querySelector("button[type='submit']");
+  const errorLine = form.querySelector(".form-error");
+  const formData = new FormData(form);
+  submitButton.disabled = true;
+  if (errorLine) errorLine.textContent = "";
+
+  try {
+    const story = await fetchJson(`${API_BASE}/specs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: formData.get("title"),
+        description: formData.get("description"),
+        projectId,
+        tags: tagsFromInput(formData.get("tags") || "pending"),
+      }),
+    });
+    state.storyFormOpen = false;
+    await loadData({ silent: true });
+    await loadProjectFiles(projectId, { silent: true });
+    if (story.filePath) {
+      await openProjectFile(projectId, story.filePath);
+    }
+  } catch (error) {
+    if (errorLine) {
+      errorLine.textContent = error.message;
+    } else {
+      state.error = error.message;
+      render();
+    }
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function moveStory(button, specId, status) {
+  button.disabled = true;
+  try {
+    await fetchJson(`${API_BASE}/specs/${encodeURIComponent(specId)}/tags`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: status }),
+    });
+    await loadData({ silent: true });
+  } catch (error) {
+    state.fileError = error.message;
+    render();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function markSelectedFileDone(button, projectId) {
+  button.disabled = true;
+  const project = state.projects.find((entry) => entry.id === projectId);
+  const spec = project ? selectedSpecForProject(project) : null;
+  const textarea = document.querySelector("#project-file-content");
+
+  try {
+    if (spec) {
+      await fetchJson(`${API_BASE}/specs/${encodeURIComponent(spec.id)}/tags`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tag: "done" }),
+      });
+      await loadData({ silent: true });
+      if (spec.filePath) {
+        await openProjectFile(projectId, spec.filePath);
+      }
+      return;
+    }
+
+    state.selectedFileContent = upsertDoneMarkers(textarea?.value || state.selectedFileContent);
+    await fetchJson(`${API_BASE}/projects/${encodeURIComponent(projectId)}/files/content`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        path: state.selectedFilePath,
+        content: state.selectedFileContent,
+      }),
+    });
+    state.fileNotice = "Als done markiert.";
+    await openProjectFile(projectId, state.selectedFilePath, { silent: true });
+    await loadData({ silent: true });
+  } catch (error) {
+    state.fileError = error.message;
+    render();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function sendChat(form) {
+  const formData = new FormData(form);
+  const message = String(formData.get("message") || "").trim();
+  if (!message || state.chatStreaming) return;
+
+  const systemPrompt = String(formData.get("systemPrompt") || "");
+  const outgoingMessages = [
+    ...state.chatMessages.filter((entry) => entry.content).map((entry) => ({
+      role: entry.role,
+      content: entry.content,
+    })),
+    { role: "user", content: message },
+  ];
+
+  state.chatSystemPrompt = systemPrompt;
+  state.chatMessages = [...state.chatMessages, { role: "user", content: message }, { role: "assistant", content: "" }];
+  state.chatStreaming = true;
+  state.chatError = "";
+  render();
+
+  try {
+    const response = await fetch(`${API_BASE}/chat`, {
+      method: "POST",
+      headers: {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        systemPrompt,
+        messages: outgoingMessages,
+      }),
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Chat failed with ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let done = false;
+
+    while (!done) {
+      const result = await reader.read();
+      done = result.done;
+      buffer += decoder.decode(result.value || new Uint8Array(), { stream: !done });
+      const parsed = parseSseEvents(buffer);
+      buffer = parsed.rest;
+
+      for (const event of parsed.events) {
+        const payload = JSON.parse(event.data);
+        if (event.eventName === "delta") {
+          const last = state.chatMessages[state.chatMessages.length - 1];
+          last.content += payload.content || "";
+          render();
+        }
+        if (event.eventName === "error") {
+          state.chatError = payload.message || "Chat failed";
+          render();
+        }
+      }
+    }
+  } catch (error) {
+    state.chatError = error.message;
+    render();
+  } finally {
+    state.chatStreaming = false;
+    render();
+  }
+}
+
 document.addEventListener("click", (event) => {
   const routeLink = event.target.closest("a[data-route]");
   if (routeLink) {
@@ -1373,6 +2034,43 @@ document.addEventListener("click", (event) => {
       deleteSpec(actionButton, actionButton.dataset.specId);
       return;
     }
+    if (action === "open-story-form") {
+      state.storyFormOpen = true;
+      render();
+      return;
+    }
+    if (action === "cancel-story-form") {
+      state.storyFormOpen = false;
+      render();
+      return;
+    }
+    if (action === "move-story") {
+      moveStory(actionButton, actionButton.dataset.specId, actionButton.dataset.status);
+      return;
+    }
+    if (action === "open-story-file" || action === "open-project-file") {
+      openProjectFile(actionButton.dataset.projectId, actionButton.dataset.path);
+      return;
+    }
+    if (action === "open-new-file") {
+      state.newFileOpen = true;
+      render();
+      return;
+    }
+    if (action === "cancel-new-file") {
+      state.newFileOpen = false;
+      render();
+      return;
+    }
+    if (action === "mark-file-done") {
+      markSelectedFileDone(actionButton, actionButton.dataset.projectId);
+      return;
+    }
+    if (action === "toggle-terminal") {
+      state.terminalCollapsed = !state.terminalCollapsed;
+      render();
+      return;
+    }
     if (action === "start-loop") {
       startLoop(actionButton, actionButton.dataset.projectId);
       return;
@@ -1402,6 +2100,11 @@ document.addEventListener("click", (event) => {
     window.history.pushState({}, "", specHref({ id: specCard.dataset.specCardId }));
     render();
   }
+
+  const storyCard = event.target.closest("[data-story-id]");
+  if (storyCard && !event.target.closest("a, button") && storyCard.dataset.storyFilePath) {
+    openProjectFile(storyCard.dataset.projectId, storyCard.dataset.storyFilePath);
+  }
 });
 
 document.addEventListener("input", (event) => {
@@ -1412,6 +2115,13 @@ document.addEventListener("input", (event) => {
   if (event.target.id === "spec-search") {
     state.specQuery = event.target.value;
     renderSpecsPage();
+  }
+  if (event.target.id === "project-file-content") {
+    state.selectedFileContent = event.target.value;
+    const status = document.querySelector(".file-editor-bar span");
+    if (status) {
+      status.textContent = selectedFileIsDirty() ? "Ungespeichert" : "Gespeichert";
+    }
   }
 });
 
@@ -1427,6 +2137,34 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
+  const storyForm = event.target.closest("form[data-story-form]");
+  if (storyForm) {
+    event.preventDefault();
+    createStory(storyForm);
+    return;
+  }
+
+  const fileForm = event.target.closest("form[data-file-editor-form]");
+  if (fileForm) {
+    event.preventDefault();
+    saveProjectFile(fileForm);
+    return;
+  }
+
+  const newFileForm = event.target.closest("form[data-new-file-form]");
+  if (newFileForm) {
+    event.preventDefault();
+    createProjectFile(newFileForm);
+    return;
+  }
+
+  const chatForm = event.target.closest("form[data-chat-form]");
+  if (chatForm) {
+    event.preventDefault();
+    sendChat(chatForm);
+    return;
+  }
+
   const form = event.target.closest("form[data-spec-form]");
   if (form) {
     event.preventDefault();
