@@ -1,10 +1,17 @@
 const ROUTE_BASE = "/ralphi";
 const API_BASE = window.location.pathname.startsWith(ROUTE_BASE) ? `${ROUTE_BASE}/api` : "/api";
 const STATUS_ORDER = ["Aktiv", "Archiv", "Referenz"];
+const DEFAULT_PROVIDER = {
+  name: "wyna",
+  baseUrl: "http://100.85.99.127:9002/v1",
+  apiKey: "not-needed",
+  api: "openai-completions",
+  model: "deepseek-v4-flash",
+};
 
 const app = document.querySelector("#app");
 const state = {
-  settings: { model: "gpt-5.5" },
+  settings: { provider: { ...DEFAULT_PROVIDER } },
   projects: [],
   loops: [],
   specs: [],
@@ -93,6 +100,20 @@ function formatDuration(milliseconds) {
   return `${seconds}s`;
 }
 
+function providerSettings(settings = state.settings) {
+  const provider = settings?.provider || {};
+  return {
+    ...DEFAULT_PROVIDER,
+    ...provider,
+    model: provider.model || settings?.model || DEFAULT_PROVIDER.model,
+  };
+}
+
+function providerSummary(settings = state.settings) {
+  const provider = providerSettings(settings);
+  return `${provider.name} / ${provider.model}`;
+}
+
 async function fetchJson(url, options = {}) {
   const { headers = {}, ...rest } = options;
   const response = await fetch(url, {
@@ -142,11 +163,11 @@ async function loadData(options = {}) {
 }
 
 function updateChrome() {
-  const model = state.settings?.model || "gpt-5.5";
+  const provider = providerSettings();
   const modelElement = document.querySelector("#active-model");
   if (modelElement) {
-    modelElement.textContent = `Model: ${model}`;
-    modelElement.title = `Active AI model: ${model}`;
+    modelElement.textContent = `Provider: ${provider.name} / ${provider.model}`;
+    modelElement.title = `Active AI provider: ${provider.name} | ${provider.baseUrl}`;
   }
 }
 
@@ -250,8 +271,12 @@ function loopStatusBadge(loop) {
   return badge("Loop status", loop.status || "unknown", loopStatusType(loop.status));
 }
 
+function providerForLoop(loop) {
+  return loop.providerName || loop.provider?.name || "unknown";
+}
+
 function modelForLoop(loop) {
-  return loop.model || "gpt-5.5";
+  return loop.model || loop.provider?.model || DEFAULT_PROVIDER.model;
 }
 
 function specStatusType(status) {
@@ -550,6 +575,7 @@ function projectCard(project) {
 }
 
 function renderStatusPanel() {
+  const provider = providerSettings();
   return `
     <section class="status-panel" aria-labelledby="app-title">
       <div>
@@ -563,7 +589,10 @@ function renderStatusPanel() {
           <span>Status: Alive</span>
         </div>
         <div class="status-row status-row-secondary">
-          <span>Model: ${escapeHtml(state.settings?.model || "gpt-5.5")}</span>
+          <span>Provider: ${escapeHtml(provider.name)}</span>
+        </div>
+        <div class="status-row status-row-secondary">
+          <span>Model: ${escapeHtml(provider.model)}</span>
         </div>
         <p class="date-line">Date: <time>${escapeHtml(formatDate())}</time></p>
       </div>
@@ -588,13 +617,15 @@ function renderSettingsPage() {
     return;
   }
 
+  const provider = providerSettings();
+
   app.innerHTML = `
     <section class="detail-header">
       <div class="section-heading">
         <div>
           <p class="eyebrow">Einstellungen</p>
           <h1>Settings</h1>
-          <p class="summary">Aktives Modell: ${escapeHtml(state.settings?.model || "gpt-5.5")}</p>
+          <p class="summary">Aktiver Provider: ${escapeHtml(providerSummary())}</p>
         </div>
       </div>
     </section>
@@ -602,28 +633,76 @@ function renderSettingsPage() {
     <form class="spec-form settings-form" data-settings-form>
       <div class="form-heading">
         <div>
-          <p class="eyebrow">AI Model</p>
-          <h2>Loop-Modell</h2>
+          <p class="eyebrow">AI Provider</p>
+          <h2>Loop-Konfiguration</h2>
         </div>
       </div>
+      <p class="settings-hint muted-text">Pi-Config: ~/.pi/agent/models.json</p>
       <div class="form-grid">
-        <label class="form-field form-field-wide">
-          <span>AI Model</span>
+        <label class="form-field">
+          <span>Provider Name</span>
+          <input
+            name="providerName"
+            required
+            maxlength="100"
+            pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+            value="${escapeHtml(provider.name)}"
+            placeholder="wyna"
+          >
+        </label>
+        <label class="form-field">
+          <span>Model</span>
           <input
             name="model"
             required
-            maxlength="100"
-            pattern="[A-Za-z0-9][A-Za-z0-9._:-]{0,99}"
+            maxlength="200"
+            pattern="[A-Za-z0-9][A-Za-z0-9._:/-]*"
             list="model-options"
-            value="${escapeHtml(state.settings?.model || "gpt-5.5")}"
-            placeholder="gpt-5.5"
+            value="${escapeHtml(provider.model)}"
+            placeholder="deepseek-v4-flash"
+          >
+        </label>
+        <label class="form-field form-field-wide">
+          <span>Base URL</span>
+          <input
+            name="baseUrl"
+            required
+            type="url"
+            value="${escapeHtml(provider.baseUrl)}"
+            placeholder="http://100.85.99.127:9002/v1"
+          >
+        </label>
+        <label class="form-field">
+          <span>API Key</span>
+          <input
+            name="apiKey"
+            type="text"
+            autocomplete="off"
+            value="${escapeHtml(provider.apiKey)}"
+            placeholder="not-needed"
+          >
+        </label>
+        <label class="form-field">
+          <span>API Type</span>
+          <input
+            name="api"
+            required
+            maxlength="100"
+            pattern="[A-Za-z0-9][A-Za-z0-9._:-]*"
+            list="api-options"
+            value="${escapeHtml(provider.api)}"
+            placeholder="openai-completions"
           >
         </label>
         <datalist id="model-options">
+          <option value="deepseek-v4-flash"></option>
           <option value="gpt-5.5"></option>
           <option value="gpt-4.1"></option>
           <option value="o3"></option>
-          <option value="o4-mini"></option>
+        </datalist>
+        <datalist id="api-options">
+          <option value="openai-completions"></option>
+          <option value="openai-responses"></option>
         </datalist>
       </div>
       <div class="form-actions">
@@ -911,6 +990,7 @@ function renderLoopCard(loop) {
       </div>
       <div class="loop-card-meta">
         <span>${escapeHtml(loop.projectId)}</span>
+        <span>Provider: ${escapeHtml(providerForLoop(loop))}</span>
         <span>Model: ${escapeHtml(modelForLoop(loop))}</span>
         <span>Exit: ${escapeHtml(loop.exitCode ?? "offen")}</span>
         <span>${escapeHtml(loop.logLineCount || 0)} Log-Einträge</span>
@@ -1019,6 +1099,7 @@ function renderLoopDetailPage(loopId) {
         <span>Start: ${escapeHtml(formatTimestamp(loop.startedAt))}</span>
         <span>Ende: ${escapeHtml(formatTimestamp(loop.finishedAt))}</span>
         <span>Dauer: ${escapeHtml(formatDuration(loop.durationMs))}</span>
+        <span>Provider: ${escapeHtml(providerForLoop(loop))}</span>
         <span>Model: ${escapeHtml(modelForLoop(loop))}</span>
         <span>Exit: ${escapeHtml(loop.exitCode ?? "offen")}</span>
       </div>
@@ -1177,7 +1258,13 @@ async function saveSettings(form) {
 
   const formData = new FormData(form);
   const payload = {
-    model: formData.get("model"),
+    provider: {
+      name: formData.get("providerName"),
+      model: formData.get("model"),
+      baseUrl: formData.get("baseUrl"),
+      apiKey: formData.get("apiKey"),
+      api: formData.get("api"),
+    },
   };
 
   try {
@@ -1192,7 +1279,7 @@ async function saveSettings(form) {
   } catch (error) {
     state.settingsError = error.message;
     render();
-    const input = document.querySelector("form[data-settings-form] input[name='model']");
+    const input = document.querySelector("form[data-settings-form] input[name='providerName']");
     input?.focus({ preventScroll: true });
   } finally {
     submitButton.disabled = false;

@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 
 const APP_ROOT = __dirname;
@@ -23,9 +24,17 @@ const SPECS_ROOT = path.resolve(process.env.SPECS_ROOT || path.join(RALPH_PROJEC
 const SPEC_TEMPLATE_FILE = path.resolve(
   process.env.SPEC_TEMPLATE_FILE || path.join(RALPH_PROJECT_ROOT, "templates", "spec-template.md"),
 );
+const PI_MODELS_FILE = path.resolve(process.env.PI_MODELS_FILE || path.join(os.homedir(), ".pi", "agent", "models.json"));
 const LOOP_TIMEOUT_MS = Number.parseInt(process.env.LOOP_TIMEOUT_MS || `${24 * 60 * 60 * 1000}`, 10);
 const LOOP_SCRIPT_CANDIDATES = ["scripts/ralph-loop-codex.sh", "scripts/ralph-loop.sh"];
-const DEFAULT_SETTINGS = Object.freeze({ model: "gpt-5.5" });
+const LEGACY_DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_PROVIDER = Object.freeze({
+  name: "wyna",
+  baseUrl: "http://100.85.99.127:9002/v1",
+  apiKey: "not-needed",
+  api: "openai-completions",
+  model: "deepseek-v4-flash",
+});
 const STATUS_TAGS = new Set(["pending", "running", "done"]);
 const SPEC_STATUS_TO_HEADING = {
   pending: "PENDING",
@@ -986,21 +995,141 @@ async function saveImportedIds(ids) {
   await fsp.rename(tmpFile, IMPORTED_FILE);
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneProvider(provider = DEFAULT_PROVIDER) {
+  return {
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    api: provider.api,
+    model: provider.model,
+  };
+}
+
+function defaultSettings() {
+  return { provider: cloneProvider(DEFAULT_PROVIDER) };
+}
+
+function normalizeToken(value, label, pattern, maxLength = 100) {
+  const token = String(value ?? "").trim();
+  if (!token) {
+    throw validationError(`${label} is required`);
+  }
+  if (token.length > maxLength || !pattern.test(token)) {
+    throw validationError(`${label} contains unsupported characters`);
+  }
+  return token;
+}
+
 function normalizeModelName(value) {
-  const model = String(value || "").trim();
+  const model = String(value ?? "").trim();
   if (!model) {
     throw validationError("AI model is required");
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(model)) {
-    throw validationError("AI model may only contain letters, numbers, dots, dashes, underscores, and colons");
+  if (model.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model)) {
+    throw validationError("AI model may only contain letters, numbers, dots, dashes, underscores, slashes, and colons");
   }
   return model;
 }
 
-function normalizeSettings(payload = {}) {
+function normalizeBaseUrl(value) {
+  const baseUrl = String(value ?? "").trim().replace(/\/+$/, "");
+  if (!baseUrl) {
+    throw validationError("Provider base URL is required");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw validationError("Provider base URL must be a valid URL");
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw validationError("Provider base URL must use http or https");
+  }
+
+  return baseUrl;
+}
+
+function normalizeProvider(payload = {}) {
+  const source = isPlainObject(payload) ? payload : {};
+  const merged = { ...DEFAULT_PROVIDER };
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && value !== null) {
+      merged[key] = value;
+    }
+  }
+
   return {
-    model: normalizeModelName(payload.model ?? DEFAULT_SETTINGS.model),
+    name: normalizeToken(merged.name, "Provider name", /^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+    baseUrl: normalizeBaseUrl(merged.baseUrl),
+    apiKey: String(merged.apiKey ?? "").trim(),
+    api: normalizeToken(merged.api, "Provider API type", /^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    model: normalizeModelName(merged.model),
   };
+}
+
+function normalizeSettings(payload = {}) {
+  if (!isPlainObject(payload)) {
+    return defaultSettings();
+  }
+
+  if (isPlainObject(payload.provider)) {
+    return {
+      provider: normalizeProvider(payload.provider),
+    };
+  }
+
+  return {
+    provider: normalizeProvider({
+      ...DEFAULT_PROVIDER,
+      model: payload.model ?? DEFAULT_PROVIDER.model,
+    }),
+  };
+}
+
+function providerFromPiConfig(parsed) {
+  if (!isPlainObject(parsed?.providers)) {
+    return null;
+  }
+
+  const providerNames = Object.keys(parsed.providers).filter((name) => isPlainObject(parsed.providers[name]));
+  if (!providerNames.length) {
+    return null;
+  }
+
+  const name = providerNames.includes(DEFAULT_PROVIDER.name) ? DEFAULT_PROVIDER.name : providerNames.sort()[0];
+  const provider = parsed.providers[name];
+  const models = Array.isArray(provider.models) ? provider.models : [];
+  const firstModel = models.find((model) => isPlainObject(model) && (model.id || model.model || model.name));
+
+  return normalizeProvider({
+    name,
+    baseUrl: provider.baseUrl ?? provider.base_url ?? provider.url,
+    apiKey: provider.apiKey ?? provider.api_key ?? DEFAULT_PROVIDER.apiKey,
+    api: provider.api ?? provider.type ?? DEFAULT_PROVIDER.api,
+    model: firstModel?.id ?? firstModel?.model ?? provider.model ?? DEFAULT_PROVIDER.model,
+  });
+}
+
+async function loadInitialSettings() {
+  try {
+    const raw = await fsp.readFile(PI_MODELS_FILE, "utf8");
+    const provider = providerFromPiConfig(JSON.parse(raw));
+    if (provider) {
+      return { provider };
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn(`Could not read pi model config from ${PI_MODELS_FILE}: ${error.message}`);
+    }
+  }
+
+  return defaultSettings();
 }
 
 async function saveSettings(settings) {
@@ -1015,10 +1144,23 @@ async function saveSettings(settings) {
 async function loadSettings() {
   try {
     const raw = await fsp.readFile(SETTINGS_FILE, "utf8");
-    return normalizeSettings(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    const normalized =
+      isPlainObject(parsed) &&
+      !isPlainObject(parsed.provider) &&
+      Object.hasOwn(parsed, "model") &&
+      parsed.model === LEGACY_DEFAULT_MODEL
+        ? await loadInitialSettings()
+        : normalizeSettings(parsed);
+
+    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+      await saveSettings(normalized);
+    }
+
+    return normalized;
   } catch (error) {
     if (error.code === "ENOENT") {
-      return saveSettings(DEFAULT_SETTINGS);
+      return saveSettings(await loadInitialSettings());
     }
     throw error;
   }
@@ -1083,6 +1225,9 @@ function durationMs(loop) {
 }
 
 function serializeLoop(loop, options = {}) {
+  const providerName = loop.providerName || loop.provider?.name || "";
+  const providerBaseUrl = loop.providerBaseUrl || loop.provider?.baseUrl || "";
+  const providerApi = loop.providerApi || loop.provider?.api || "";
   const serialized = {
     id: loop.id,
     projectId: loop.projectId,
@@ -1095,7 +1240,17 @@ function serializeLoop(loop, options = {}) {
     signal: loop.signal || null,
     command: loop.command,
     args: loop.args || [],
-    model: loop.model || DEFAULT_SETTINGS.model,
+    providerName,
+    providerBaseUrl,
+    providerApi,
+    provider: providerName
+      ? {
+          name: providerName,
+          baseUrl: providerBaseUrl,
+          api: providerApi,
+        }
+      : null,
+    model: loop.model || loop.provider?.model || DEFAULT_PROVIDER.model,
     cwd: loop.cwd,
     hostPath: loop.hostPath || null,
     timeoutMs: loop.timeoutMs || LOOP_TIMEOUT_MS,
@@ -1293,6 +1448,7 @@ async function startLoop(project) {
   }
 
   const settings = await loadSettings();
+  const provider = settings.provider;
   const loop = {
     id: createLoopId(project.id),
     projectId: project.id,
@@ -1305,7 +1461,15 @@ async function startLoop(project) {
     signal: null,
     command: script.command,
     args: ["1"],
-    model: settings.model,
+    providerName: provider.name,
+    providerBaseUrl: provider.baseUrl,
+    providerApi: provider.api,
+    provider: {
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      api: provider.api,
+    },
+    model: provider.model,
     cwd: project.path,
     hostPath: project.hostPath,
     timeoutMs: LOOP_TIMEOUT_MS,
@@ -1321,6 +1485,11 @@ async function startLoop(project) {
     env: {
       ...process.env,
       CODEX_MODEL: loop.model,
+      OPENAI_BASE_URL: provider.baseUrl,
+      OPENAI_API_KEY: provider.apiKey || process.env.OPENAI_API_KEY || "",
+      RALPHI_PROVIDER_NAME: provider.name,
+      RALPHI_PROVIDER_BASE_URL: provider.baseUrl,
+      RALPHI_PROVIDER_API: provider.api,
       RALPHI_LOOP_ID: loop.id,
       RALPHI_PROJECT_ID: loop.projectId,
     },
@@ -1337,7 +1506,7 @@ async function startLoop(project) {
   timeout.unref();
 
   runningLoops.set(loop.id, { child, timeout });
-  appendLoopLog(loop, "stdout", `Using model: ${loop.model}\n`);
+  appendLoopLog(loop, "stdout", `Provider: ${provider.name} | Model: ${loop.model}\n`);
   appendLoopLog(loop, "stdout", `$ ${loop.command} ${loop.args.join(" ")}\n`);
 
   child.stdout.on("data", (chunk) => appendLoopLog(loop, "stdout", chunk.toString()));
@@ -1515,10 +1684,10 @@ async function handleSettingsApi(req, res, segments) {
 
   if (req.method === "PUT") {
     const body = await readJsonBody(req);
-    if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "model")) {
-      throw validationError("AI model is required");
+    if (!isPlainObject(body) || (!Object.hasOwn(body, "provider") && !Object.hasOwn(body, "model"))) {
+      throw validationError("Provider settings are required");
     }
-    sendJson(res, 200, await saveSettings({ model: body.model }));
+    sendJson(res, 200, await saveSettings(body));
     return;
   }
 
