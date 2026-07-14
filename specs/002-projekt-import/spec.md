@@ -89,14 +89,14 @@ Ralphi soll bestehende Projekte aus dem vibes-Ordner erkennen und importieren k�
 
 ### Implementation Checklist
 
-- [ ] Volume-Mount f체r `/Users/boot/Documents/vibes/` im docker-compose.yml erg채nzt
-- [ ] Backend (API) implementiert: Projekte scannen, parsen, importieren
-- [ ] Frontend-Seite `/ralphi/projects` mit Projektliste und Karten
-- [ ] Import-Funktion mit persistenter Speicherung
-- [ ] Detail-Ansicht pro Projekt
-- [ ] Refresh/Rescan-Funktion
-- [ ] Filterung nach Status (Aktiv/Archiv/Referenz)
-- [ ] Badges f체r Ralph/Docker/Proxy
+- [x] Volume-Mount f체r `/Users/boot/Documents/vibes/` im docker-compose.yml erg채nzt
+- [x] Backend (API) implementiert: Projekte scannen, parsen, importieren
+- [x] Frontend-Seite `/ralphi/projects` mit Projektliste und Karten
+- [x] Import-Funktion mit persistenter Speicherung
+- [x] Detail-Ansicht pro Projekt
+- [x] Refresh/Rescan-Funktion
+- [x] Filterung nach Status (Aktiv/Archiv/Referenz)
+- [x] Badges f체r Ralph/Docker/Proxy
 
 ### Testing Requirements
 
@@ -138,5 +138,5 @@ Wenn etwas fehlschl채gt:
 
 ---
 
-## Status: PENDING
-<!-- NR_OF_TRIES: 0 -->
+## Status: COMPLETE
+<!-- NR_OF_TRIES: 1 -->
