@@ -44,6 +44,10 @@ Alles in einer Seite: links das Board, rechts der Editor, unten das Terminal.
 - [ ] Story kann per Button oder Drag in andere Spalte verschoben werden
 - [ ] "Neue Story"-Button erstellt eine neue Story
 - [ ] Stories werden als Spec-Dateien im Projekt gespeichert (`specs/{id}/spec.md`)
+- [ ] Lösch-Button pro Story-Karte (mit Bestätigung)
+- [ ] Nach Löschen: Spec-Datei wird vom Dateisystem entfernt
+- [ ] Nach Löschen: Dashboard wird sofort aktualisiert (Spec taucht nicht wieder auf)
+- [ ] Löschen funktioniert auch für Specs in importierten Projekten
 
 ### FR-3: File-Editor
 
