@@ -20,56 +20,56 @@ Ralphi soll Ralph Wiggum Loops für importierte Projekte starten und überwachen
 ### FR-1: Loop starten
 
 **Acceptance Criteria:**
-- [ ] Button "Ralph Loop starten" in der Projekt-Detailansicht startet einen Loop
-- [ ] Der Loop wird als Subprozess gestartet im Projektverzeichnis
-- [ ] Es wird `./scripts/ralph-loop-codex.sh 1` (oder `ralph-loop.sh`) ausgeführt
-- [ ] Mehrere Loops können parallel laufen (ein Loop pro Projekt)
-- [ ] Versuch einen zweiten Loop fürs gleiche Projekt zu starten → Fehlermeldung "Loop läuft bereits"
+- [x] Button "Ralph Loop starten" in der Projekt-Detailansicht startet einen Loop
+- [x] Der Loop wird als Subprozess gestartet im Projektverzeichnis
+- [x] Es wird `./scripts/ralph-loop-codex.sh 1` (oder `ralph-loop.sh`) ausgeführt
+- [x] Mehrere Loops können parallel laufen (ein Loop pro Projekt)
+- [x] Versuch einen zweiten Loop fürs gleiche Projekt zu starten → Fehlermeldung "Loop läuft bereits"
 
 ### FR-2: Live-Logs via SSE (Server-Sent Events)
 
 **Acceptance Criteria:**
-- [ ] `GET /api/loops/{id}/stream` liefert SSE mit Live-Log-Output
-- [ ] Der Client zeigt Logs in einem Terminal-ähnlichen Fenster an
-- [ ] Neue Zeilen erscheinen automatisch (kein manuelles Refreshen)
-- [ ] Logs sind farbig (stderr rot, stdout normal)
-- [ ] Verbindung wird geschlossen wenn der Loop endet
+- [x] `GET /api/loops/{id}/stream` liefert SSE mit Live-Log-Output
+- [x] Der Client zeigt Logs in einem Terminal-ähnlichen Fenster an
+- [x] Neue Zeilen erscheinen automatisch (kein manuelles Refreshen)
+- [x] Logs sind farbig (stderr rot, stdout normal)
+- [x] Verbindung wird geschlossen wenn der Loop endet
 
 ### FR-3: Loop-Status-API
 
 **Acceptance Criteria:**
-- [ ] `GET /api/loops` – Liste aller Loops (aktiv + historisch)
-- [ ] `GET /api/loops/{id}` – Details zu einem Loop
-- [ ] `POST /api/projects/{name}/loop/start` – Loop starten
-- [ ] `POST /api/loops/{id}/stop` – Loop abbrechen
-- [ ] `GET /api/loops/{id}/logs` – Komplette Logs abrufen
-- [ ] Jeder Loop hat: id, projectId, status (running/done/failed/stopped), startedAt, finishedAt, exitCode
+- [x] `GET /api/loops` – Liste aller Loops (aktiv + historisch)
+- [x] `GET /api/loops/{id}` – Details zu einem Loop
+- [x] `POST /api/projects/{name}/loop/start` – Loop starten
+- [x] `POST /api/loops/{id}/stop` – Loop abbrechen
+- [x] `GET /api/loops/{id}/logs` – Komplette Logs abrufen
+- [x] Jeder Loop hat: id, projectId, status (running/done/failed/stopped), startedAt, finishedAt, exitCode
 
 ### FR-4: UI: Live-Log-Ansicht
 
 **Acceptance Criteria:**
-- [ ] Nach Klick auf "Ralph Loop starten" öffnet sich eine Log-Ansicht
-- [ ] Log-Ansicht ist ein Terminal-ähnliches Fenster (monospace, schwarzer Hintergrund)
-- [ ] Auto-scrollt bei neuem Output
-- [ ] Button "Abbrechen" um den Loop zu stoppen
-- [ ] Button "Schliessen" um die Log-Ansicht zu schliessen (Loop läuft im Hintergrund weiter)
-- [ ] Status-Badge zeigt live ob der Loop läuft
+- [x] Nach Klick auf "Ralph Loop starten" öffnet sich eine Log-Ansicht
+- [x] Log-Ansicht ist ein Terminal-ähnliches Fenster (monospace, schwarzer Hintergrund)
+- [x] Auto-scrollt bei neuem Output
+- [x] Button "Abbrechen" um den Loop zu stoppen
+- [x] Button "Schliessen" um die Log-Ansicht zu schliessen (Loop läuft im Hintergrund weiter)
+- [x] Status-Badge zeigt live ob der Loop läuft
 
 ### FR-5: UI: Loop-Historie
 
 **Acceptance Criteria:**
-- [ ] Projekt-Detailseite zeigt Historie der Loops für dieses Projekt
-- [ ] Jeder Eintrag zeigt: Datum, Status, Dauer, Exit-Code
-- [ ] Klick auf einen historischen Eintrag öffnet die Logs (Read-only)
-- [ ] Seite `/ralphi/loops` zeigt alle Loops aller Projekte
+- [x] Projekt-Detailseite zeigt Historie der Loops für dieses Projekt
+- [x] Jeder Eintrag zeigt: Datum, Status, Dauer, Exit-Code
+- [x] Klick auf einen historischen Eintrag öffnet die Logs (Read-only)
+- [x] Seite `/ralphi/loops` zeigt alle Loops aller Projekte
 
 ### FR-6: Sicherheit
 
 **Acceptance Criteria:**
-- [ ] Loops laufen nur für Projekte die tatsächlich auf der Festplatte existieren
-- [ ] Kein Path-Traversal beim Projektnamen
-- [ ] Subprozesse werden mit timeout gestartet (max 24h)
-- [ ] Wenn der ralphi-Container neustartet, werden laufende Loops als "failed" markiert
+- [x] Loops laufen nur für Projekte die tatsächlich auf der Festplatte existieren
+- [x] Kein Path-Traversal beim Projektnamen
+- [x] Subprozesse werden mit timeout gestartet (max 24h)
+- [x] Wenn der ralphi-Container neustartet, werden laufende Loops als "failed" markiert
 
 ---
 
@@ -91,40 +91,40 @@ Ralphi soll Ralph Wiggum Loops für importierte Projekte starten und überwachen
 
 ### Implementation Checklist
 
-- [ ] Backend: Loop-Manager mit Subprozess-Steuerung
-- [ ] SSE-Streaming für Live-Logs
-- [ ] CRUD-API für Loops (start, stop, list, detail, logs)
-- [ ] Frontend: Log-Ansicht (Terminal-Stil, monospace, auto-scroll)
-- [ ] Frontend: Loop-Historie pro Projekt
-- [ ] Frontend: Loop starten/stoppen aus Projekt-Detail
-- [ ] Persistenz: Loop-Historie in `/data/loops.json`
+- [x] Backend: Loop-Manager mit Subprozess-Steuerung
+- [x] SSE-Streaming für Live-Logs
+- [x] CRUD-API für Loops (start, stop, list, detail, logs)
+- [x] Frontend: Log-Ansicht (Terminal-Stil, monospace, auto-scroll)
+- [x] Frontend: Loop-Historie pro Projekt
+- [x] Frontend: Loop starten/stoppen aus Projekt-Detail
+- [x] Persistenz: Loop-Historie in `/data/loops.json`
 
 ### Testing Requirements
 
 #### Code Quality
-- [ ] `docker compose config` gibt keinen Fehler
-- [ ] Backend startet ohne Fehler
-- [ ] Subprozesse werden korrekt gemanagt (keine Zombie-Prozesse)
+- [x] `docker compose config` gibt keinen Fehler
+- [x] Backend startet ohne Fehler
+- [x] Subprozesse werden korrekt gemanagt (keine Zombie-Prozesse)
 
 #### Functional Verification
-- [ ] `POST /api/projects/planed1/loop/start` startet einen Loop
-- [ ] `GET /api/loops` zeigt den laufenden Loop
-- [ ] SSE-Endpoint liefert Event-Stream
-- [ ] `POST /api/loops/{id}/stop` stoppt den Loop
-- [ ] Nach Loop-Ende: Status ist "done" oder "failed"
-- [ ] Zweiter Start für gleiches Projekt wird abgewiesen
-- [ ] Loop-Historie bleibt nach Neustart erhalten
+- [x] `POST /api/projects/planed1/loop/start` startet einen Loop
+- [x] `GET /api/loops` zeigt den laufenden Loop
+- [x] SSE-Endpoint liefert Event-Stream
+- [x] `POST /api/loops/{id}/stop` stoppt den Loop
+- [x] Nach Loop-Ende: Status ist "done" oder "failed"
+- [x] Zweiter Start für gleiches Projekt wird abgewiesen
+- [x] Loop-Historie bleibt nach Neustart erhalten
 
 #### Visual Verification
-- [ ] Log-Ansicht sieht aus wie ein Terminal
-- [ ] Auto-scroll funktioniert
-- [ ] "Abbrechen"-Button ist sichtbar und funktioniert
-- [ ] Status-Badge zeigt korrekten Zustand
+- [x] Log-Ansicht sieht aus wie ein Terminal
+- [x] Auto-scroll funktioniert
+- [x] "Abbrechen"-Button ist sichtbar und funktioniert
+- [x] Status-Badge zeigt korrekten Zustand
 
 #### Console/Network Check
-- [ ] SSE-Verbindung wird sauber auf- und abgebaut
-- [ ] Keine 404er
-- [ ] Keine Speicherlecks bei langen SSE-Verbindungen
+- [x] SSE-Verbindung wird sauber auf- und abgebaut
+- [x] Keine 404er
+- [x] Keine Speicherlecks bei langen SSE-Verbindungen
 
 ### Iteration Instructions
 
@@ -139,5 +139,5 @@ Wenn etwas fehlschlägt:
 
 ---
 
-## Status: PENDING
-<!-- NR_OF_TRIES: 0 -->
+## Status: COMPLETE
+<!-- NR_OF_TRIES: 1 -->
