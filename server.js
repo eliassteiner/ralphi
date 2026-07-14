@@ -18,6 +18,8 @@ const STATIC_FILES = new Map([
   ["/index.html", "index.html"],
   ["/styles.css", "styles.css"],
   ["/app.js", "app.js"],
+  ["/favicon.svg", "favicon.svg"],
+  ["/favicon.ico", "favicon.svg"],
 ]);
 
 const CONTENT_TYPES = {
@@ -25,6 +27,7 @@ const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
 };
 

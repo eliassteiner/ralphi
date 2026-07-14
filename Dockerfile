@@ -8,7 +8,7 @@ ENV NODE_ENV=production \
     VIBES_HOST_ROOT=/Users/boot/Documents/vibes \
     DATA_DIR=/data
 
-COPY server.js index.html styles.css app.js ./
+COPY server.js index.html styles.css app.js favicon.svg ./
 
 EXPOSE 80
 
