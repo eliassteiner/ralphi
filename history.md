@@ -4,3 +4,4 @@
 2026-07-14: Re-verified 002-projekt-import; API, import/unwatch persistence, path traversal rejection, and desktop/mobile UI checks pass.
 2026-07-14: Completed 003-loop-management with subprocess loop start/stop, SSE live logs, loop history persistence, duplicate-start protection, and restart recovery.
 2026-07-14: Completed 005-ai-model-config with persistent settings, model-aware loop starts/logs, and Settings UI/model displays.
+2026-07-14: Verified and marked 005-ai-model-config complete with full Wyna/DeepSeek provider config, pi-config import, loop env/logs, and UI route checks.

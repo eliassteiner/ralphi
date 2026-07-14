@@ -18,8 +18,8 @@ Ralphi soll nicht nur einen Model-Namen speichern, sondern die vollständige Pro
 ### FR-1: Settings mit vollständiger Provider-Konfiguration
 
 **Acceptance Criteria:**
-- [ ] Settings speichern: `provider.model`, `provider.baseUrl`, `provider.apiKey`, `provider.api`
-- [ ] Default-Werte:
+- [x] Settings speichern: `provider.model`, `provider.baseUrl`, `provider.apiKey`, `provider.api`
+- [x] Default-Werte:
   ```json
   {
     "provider": {
@@ -31,36 +31,36 @@ Ralphi soll nicht nur einen Model-Namen speichern, sondern die vollständige Pro
     }
   }
   ```
-- [ ] Settings werden in `/data/settings.json` persistiert
+- [x] Settings werden in `/data/settings.json` persistiert
 
 ### FR-2: API-Endpoints
 
 **Acceptance Criteria:**
-- [ ] `GET /api/settings` – Aktuelle Einstellungen (gesamtes Provider-Objekt)
-- [ ] `PUT /api/settings` – Settings aktualisieren
-- [ ] Bei erstem Start: Defaults aus der Spec werden geschrieben
+- [x] `GET /api/settings` – Aktuelle Einstellungen (gesamtes Provider-Objekt)
+- [x] `PUT /api/settings` – Settings aktualisieren
+- [x] Bei erstem Start: Defaults aus der Spec werden geschrieben
 
 ### FR-3: UI: Settings-Seite
 
 **Acceptance Criteria:**
-- [ ] Route `/ralphi/settings` zeigt Einstellungs-Formular
-- [ ] Felder: Provider Name, Model, Base URL, API Key, API Type
-- [ ] Aktuelle Werte sind im Formular vorausgefüllt
-- [ ] Button "Speichern" mit Erfolgsmeldung
+- [x] Route `/ralphi/settings` zeigt Einstellungs-Formular
+- [x] Felder: Provider Name, Model, Base URL, API Key, API Type
+- [x] Aktuelle Werte sind im Formular vorausgefüllt
+- [x] Button "Speichern" mit Erfolgsmeldung
 
 ### FR-4: Loop verwendet Provider-Konfiguration
 
 **Acceptance Criteria:**
-- [ ] Beim Loop-Start wird `CODEX_MODEL` auf `provider.model` gesetzt
-- [ ] Loop-Log zeigt: `Provider: wyna | Model: deepseek-v4-flash`
-- [ ] Loop-Karten und Detailseite zeigen Provider + Model an
+- [x] Beim Loop-Start wird `CODEX_MODEL` auf `provider.model` gesetzt
+- [x] Loop-Log zeigt: `Provider: wyna | Model: deepseek-v4-flash`
+- [x] Loop-Karten und Detailseite zeigen Provider + Model an
 
 ### FR-5: Integration mit vorhandener pi-Konfiguration
 
 **Acceptance Criteria:**
-- [ ] Settings-Seite zeigt Hinweis: "Pi-Config: ~/.pi/agent/models.json"
-- [ ] Beim ersten Start wird versucht, die pi-Config zu lesen
-- [ ] Falls vorhanden, werden die pi-Provider-Einstellungen übernommen
+- [x] Settings-Seite zeigt Hinweis: "Pi-Config: ~/.pi/agent/models.json"
+- [x] Beim ersten Start wird versucht, die pi-Config zu lesen
+- [x] Falls vorhanden, werden die pi-Provider-Einstellungen übernommen
 
 ---
 
@@ -81,26 +81,26 @@ Ralphi soll nicht nur einen Model-Namen speichern, sondern die vollständige Pro
 
 ### Implementation Checklist
 
-- [ ] Backend: Settings mit Provider-Objekt (baseUrl, apiKey, model, api)
-- [ ] Default: Wyna/DeepSeek-Konfiguration
-- [ ] Frontend: Settings-Seite mit allen Provider-Feldern
-- [ ] pi-Config als Default-Quelle (optional)
-- [ ] Model/Provider-Anzeige in Loop-Detail und Loop-Liste
+- [x] Backend: Settings mit Provider-Objekt (baseUrl, apiKey, model, api)
+- [x] Default: Wyna/DeepSeek-Konfiguration
+- [x] Frontend: Settings-Seite mit allen Provider-Feldern
+- [x] pi-Config als Default-Quelle (optional)
+- [x] Model/Provider-Anzeige in Loop-Detail und Loop-Liste
 
 ### Testing Requirements
 
 #### Code Quality
-- [ ] `docker compose config` gibt keinen Fehler
-- [ ] Backend startet ohne Fehler
+- [x] `docker compose config` gibt keinen Fehler
+- [x] Backend startet ohne Fehler
 
 #### Functional Verification
-- [ ] `GET /api/settings` liefert vollständige Provider-Config
-- [ ] `PUT /api/settings` speichert neue Provider-Werte
-- [ ] Default: `baseUrl: http://100.85.99.127:9002/v1`, `model: deepseek-v4-flash`
+- [x] `GET /api/settings` liefert vollständige Provider-Config
+- [x] `PUT /api/settings` speichert neue Provider-Werte
+- [x] Default: `baseUrl: http://100.85.99.127:9002/v1`, `model: deepseek-v4-flash`
 
 #### Visual Verification
-- [ ] Settings-Seite zeigt alle Felder
-- [ ] Loop-Detail zeigt Provider und Model
+- [x] Settings-Seite zeigt alle Felder
+- [x] Loop-Detail zeigt Provider und Model
 
 ### Iteration Instructions
 
@@ -115,5 +115,5 @@ Wenn etwas fehlschlägt:
 
 ---
 
-## Status: PENDING
-<!-- NR_OF_TRIES: 0 -->
+## Status: COMPLETE
+<!-- NR_OF_TRIES: 1 -->
