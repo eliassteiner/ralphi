@@ -14,6 +14,7 @@ const PROXY_CADDYFILE = path.join(VIBES_ROOT, "vibes-proxy", "Caddyfile");
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(APP_ROOT, "data"));
 const IMPORTED_FILE = path.join(DATA_DIR, "imported-projects.json");
 const LOOPS_FILE = path.join(DATA_DIR, "loops.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const RALPH_PROJECT_ROOT = path.resolve(
   process.env.RALPH_PROJECT_ROOT ||
     (fs.existsSync(path.join(VIBES_ROOT, "ralph")) ? path.join(VIBES_ROOT, "ralph") : APP_ROOT),
@@ -24,6 +25,7 @@ const SPEC_TEMPLATE_FILE = path.resolve(
 );
 const LOOP_TIMEOUT_MS = Number.parseInt(process.env.LOOP_TIMEOUT_MS || `${24 * 60 * 60 * 1000}`, 10);
 const LOOP_SCRIPT_CANDIDATES = ["scripts/ralph-loop-codex.sh", "scripts/ralph-loop.sh"];
+const DEFAULT_SETTINGS = Object.freeze({ model: "gpt-5.5" });
 const STATUS_TAGS = new Set(["pending", "running", "done"]);
 const SPEC_STATUS_TO_HEADING = {
   pending: "PENDING",
@@ -984,6 +986,44 @@ async function saveImportedIds(ids) {
   await fsp.rename(tmpFile, IMPORTED_FILE);
 }
 
+function normalizeModelName(value) {
+  const model = String(value || "").trim();
+  if (!model) {
+    throw validationError("AI model is required");
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(model)) {
+    throw validationError("AI model may only contain letters, numbers, dots, dashes, underscores, and colons");
+  }
+  return model;
+}
+
+function normalizeSettings(payload = {}) {
+  return {
+    model: normalizeModelName(payload.model ?? DEFAULT_SETTINGS.model),
+  };
+}
+
+async function saveSettings(settings) {
+  const normalized = normalizeSettings(settings);
+  await fsp.mkdir(DATA_DIR, { recursive: true });
+  const tmpFile = `${SETTINGS_FILE}.${process.pid}.tmp`;
+  await fsp.writeFile(tmpFile, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  await fsp.rename(tmpFile, SETTINGS_FILE);
+  return normalized;
+}
+
+async function loadSettings() {
+  try {
+    const raw = await fsp.readFile(SETTINGS_FILE, "utf8");
+    return normalizeSettings(JSON.parse(raw));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return saveSettings(DEFAULT_SETTINGS);
+    }
+    throw error;
+  }
+}
+
 async function readLoopsFromDisk() {
   try {
     const raw = await fsp.readFile(LOOPS_FILE, "utf8");
@@ -1055,6 +1095,7 @@ function serializeLoop(loop, options = {}) {
     signal: loop.signal || null,
     command: loop.command,
     args: loop.args || [],
+    model: loop.model || DEFAULT_SETTINGS.model,
     cwd: loop.cwd,
     hostPath: loop.hostPath || null,
     timeoutMs: loop.timeoutMs || LOOP_TIMEOUT_MS,
@@ -1251,6 +1292,7 @@ async function startLoop(project) {
     throw error;
   }
 
+  const settings = await loadSettings();
   const loop = {
     id: createLoopId(project.id),
     projectId: project.id,
@@ -1263,6 +1305,7 @@ async function startLoop(project) {
     signal: null,
     command: script.command,
     args: ["1"],
+    model: settings.model,
     cwd: project.path,
     hostPath: project.hostPath,
     timeoutMs: LOOP_TIMEOUT_MS,
@@ -1277,6 +1320,7 @@ async function startLoop(project) {
     cwd: loop.cwd,
     env: {
       ...process.env,
+      CODEX_MODEL: loop.model,
       RALPHI_LOOP_ID: loop.id,
       RALPHI_PROJECT_ID: loop.projectId,
     },
@@ -1293,6 +1337,7 @@ async function startLoop(project) {
   timeout.unref();
 
   runningLoops.set(loop.id, { child, timeout });
+  appendLoopLog(loop, "stdout", `Using model: ${loop.model}\n`);
   appendLoopLog(loop, "stdout", `$ ${loop.command} ${loop.args.join(" ")}\n`);
 
   child.stdout.on("data", (chunk) => appendLoopLog(loop, "stdout", chunk.toString()));
@@ -1455,6 +1500,29 @@ function findProject(projects, key) {
       slugify(project.name) === key ||
       slugify(project.directoryName) === key,
   );
+}
+
+async function handleSettingsApi(req, res, segments) {
+  if (segments.length !== 2) {
+    sendError(res, 404, "API endpoint not found");
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, await loadSettings());
+    return;
+  }
+
+  if (req.method === "PUT") {
+    const body = await readJsonBody(req);
+    if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "model")) {
+      throw validationError("AI model is required");
+    }
+    sendJson(res, 200, await saveSettings({ model: body.model }));
+    return;
+  }
+
+  sendError(res, 405, "Method not allowed");
 }
 
 async function handleProjectsApi(req, res, segments) {
@@ -1698,6 +1766,11 @@ async function handleApi(req, res, apiPath) {
     return;
   }
 
+  if (segments[1] === "settings") {
+    await handleSettingsApi(req, res, segments);
+    return;
+  }
+
   if (segments[1] === "loops") {
     await handleLoopsApi(req, res, segments);
     return;
@@ -1757,6 +1830,7 @@ function serveStatic(req, res, pathname) {
     normalized === "/" ||
     normalized === "/projects" ||
     normalized.startsWith("/projects/") ||
+    normalized === "/settings" ||
     normalized === "/loops" ||
     normalized.startsWith("/loops/") ||
     normalized === "/specs" ||
@@ -1810,6 +1884,7 @@ markInterruptedLoops()
       console.log(`Reading projects from ${PROJECTS_FILE}`);
       console.log(`Persisting watched projects in ${IMPORTED_FILE}`);
       console.log(`Persisting loop history in ${LOOPS_FILE}`);
+      console.log(`Persisting settings in ${SETTINGS_FILE}`);
       console.log(`Reading specs from ${SPECS_ROOT}`);
     });
   });

@@ -19,41 +19,41 @@ Ralphi startet Ralph Loops mit `./scripts/ralph-loop-codex.sh`. Das verwendete A
 ### FR-1: Globale Model-Konfiguration
 
 **Acceptance Criteria:**
-- [ ] Neue Seite/Modal `/ralphi/settings` mit Model-Einstellung
-- [ ] Input-Feld für Model-Name (z.B. `gpt-5.5`, `gpt-4.1`, `o3`, `o4-mini`)
-- [ ] Default-Wert: `gpt-5.5`
-- [ ] Einstellung wird persistent gespeichert in `/data/settings.json`
-- [ ] Anzeige des aktiven Modells in der Navigation oder Statusleiste
+- [x] Neue Seite/Modal `/ralphi/settings` mit Model-Einstellung
+- [x] Input-Feld für Model-Name (z.B. `gpt-5.5`, `gpt-4.1`, `o3`, `o4-mini`)
+- [x] Default-Wert: `gpt-5.5`
+- [x] Einstellung wird persistent gespeichert in `/data/settings.json`
+- [x] Anzeige des aktiven Modells in der Navigation oder Statusleiste
 
 ### FR-2: Model-Wird an Loop-Start übergeben
 
 **Acceptance Criteria:**
-- [ ] Beim Start eines Loops wird `CODEX_MODEL` auf das konfigurierte Modell gesetzt
-- [ ] Der Loop-Output zeigt initial: "Using model: gpt-5.5" (oder das gewählte Modell)
-- [ ] Modell-Änderung wirkt sich erst auf NEUE Loops aus (laufende bleiben unberührt)
+- [x] Beim Start eines Loops wird `CODEX_MODEL` auf das konfigurierte Modell gesetzt
+- [x] Der Loop-Output zeigt initial: "Using model: gpt-5.5" (oder das gewählte Modell)
+- [x] Modell-Änderung wirkt sich erst auf NEUE Loops aus (laufende bleiben unberührt)
 
 ### FR-3: API-Endpoints
 
 **Acceptance Criteria:**
-- [ ] `GET /api/settings` – Aktuelle Einstellungen abrufen
-- [ ] `PUT /api/settings` – Einstellungen aktualisieren (body: { model: "gpt-5.5" })
-- [ ] Settings werden in `/data/settings.json` gespeichert
-- [ ] Default: `{ "model": "gpt-5.5" }`
+- [x] `GET /api/settings` – Aktuelle Einstellungen abrufen
+- [x] `PUT /api/settings` – Einstellungen aktualisieren (body: { model: "gpt-5.5" })
+- [x] Settings werden in `/data/settings.json` gespeichert
+- [x] Default: `{ "model": "gpt-5.5" }`
 
 ### FR-4: UI: Settings-Seite
 
 **Acceptance Criteria:**
-- [ ] Route `/ralphi/settings` zeigt ein einfaches Formular
-- [ ] Feld: "AI Model" mit aktuellem Wert, Text-Input
-- [ ] Button "Speichern"
-- [ ] Erfolgsmeldung nach Speichern
-- [ ] Fehlerbehandlung bei ungültigen Werten
+- [x] Route `/ralphi/settings` zeigt ein einfaches Formular
+- [x] Feld: "AI Model" mit aktuellem Wert, Text-Input
+- [x] Button "Speichern"
+- [x] Erfolgsmeldung nach Speichern
+- [x] Fehlerbehandlung bei ungültigen Werten
 
 ### FR-5: Anzeige in Loop-Detail
 
 **Acceptance Criteria:**
-- [ ] In der Loop-Detailseite wird das verwendete Modell angezeigt
-- [ ] In der Loop-Liste (`/ralphi/loops`) wird das Modell pro Loop angezeigt
+- [x] In der Loop-Detailseite wird das verwendete Modell angezeigt
+- [x] In der Loop-Liste (`/ralphi/loops`) wird das Modell pro Loop angezeigt
 
 ---
 
@@ -74,30 +74,30 @@ Ralphi startet Ralph Loops mit `./scripts/ralph-loop-codex.sh`. Das verwendete A
 
 ### Implementation Checklist
 
-- [ ] Backend: Settings-CRUD (GET/PUT `/api/settings`)
-- [ ] Backend: Model-Variable an Loop-Start übergeben (CODEX_MODEL env)
-- [ ] Frontend: Settings-Seite (`/ralphi/settings`) mit Formular
-- [ ] Frontend: Model-Anzeige in Loop-Detail und Loop-Liste
-- [ ] Persistenz in `/data/settings.json`
-- [ ] Default `model: "gpt-5.5"` bei erstem Start
+- [x] Backend: Settings-CRUD (GET/PUT `/api/settings`)
+- [x] Backend: Model-Variable an Loop-Start übergeben (CODEX_MODEL env)
+- [x] Frontend: Settings-Seite (`/ralphi/settings`) mit Formular
+- [x] Frontend: Model-Anzeige in Loop-Detail und Loop-Liste
+- [x] Persistenz in `/data/settings.json`
+- [x] Default `model: "gpt-5.5"` bei erstem Start
 
 ### Testing Requirements
 
 #### Code Quality
-- [ ] `docker compose config` gibt keinen Fehler
-- [ ] Backend startet ohne Fehler
+- [x] `docker compose config` gibt keinen Fehler
+- [x] Backend startet ohne Fehler
 
 #### Functional Verification
-- [ ] `GET /api/settings` liefert Default `{ model: "gpt-5.5" }`
-- [ ] `PUT /api/settings` mit `{ model: "o3" }` speichert und gibt neuen Wert zurück
-- [ ] Nach Neustart: geänderter Wert bleibt erhalten
-- [ ] Loop-Start verwendet das konfigurierte Modell
-- [ ] `/ralphi/settings` zeigt das Formular an
+- [x] `GET /api/settings` liefert Default `{ model: "gpt-5.5" }`
+- [x] `PUT /api/settings` mit `{ model: "o3" }` speichert und gibt neuen Wert zurück
+- [x] Nach Neustart: geänderter Wert bleibt erhalten
+- [x] Loop-Start verwendet das konfigurierte Modell
+- [x] `/ralphi/settings` zeigt das Formular an
 
 #### Visual Verification
-- [ ] Settings-Seite ist sauber und responsive
-- [ ] Aktuelles Modell ist in der Nav sichtbar (optional)
-- [ ] Loop-Detail zeigt Modell an
+- [x] Settings-Seite ist sauber und responsive
+- [x] Aktuelles Modell ist in der Nav sichtbar (optional)
+- [x] Loop-Detail zeigt Modell an
 
 ### Iteration Instructions
 
@@ -112,5 +112,5 @@ Wenn etwas fehlschlägt:
 
 ---
 
-## Status: PENDING
-<!-- NR_OF_TRIES: 0 -->
+## Status: COMPLETE
+<!-- NR_OF_TRIES: 1 -->

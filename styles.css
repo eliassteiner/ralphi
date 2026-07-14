@@ -93,6 +93,9 @@ textarea {
 .nav-links {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .nav-links a {
@@ -107,6 +110,20 @@ textarea {
 .nav-links a:focus-visible {
   background: var(--panel-soft);
   outline: none;
+}
+
+.nav-model {
+  max-width: 240px;
+  padding: 8px 10px;
+  overflow: hidden;
+  color: var(--muted);
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .main-view {
@@ -187,6 +204,12 @@ h3 {
   color: var(--accent-dark);
   font-weight: 800;
   white-space: nowrap;
+}
+
+.status-row-secondary {
+  background: var(--panel-soft);
+  border-color: var(--border);
+  color: var(--muted);
 }
 
 .status-dot {
@@ -791,9 +814,18 @@ dl {
   }
 
   .toolbar,
+  .nav-links,
   .search-field input,
   .search-field select {
     width: 100%;
+  }
+
+  .nav-links {
+    justify-content: flex-start;
+  }
+
+  .nav-model {
+    max-width: 100%;
   }
 
   .project-card-main,

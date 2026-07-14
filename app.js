@@ -4,6 +4,7 @@ const STATUS_ORDER = ["Aktiv", "Archiv", "Referenz"];
 
 const app = document.querySelector("#app");
 const state = {
+  settings: { model: "gpt-5.5" },
   projects: [],
   loops: [],
   specs: [],
@@ -13,6 +14,8 @@ const state = {
   specTagFilter: "",
   specProjectFilter: "",
   specForm: null,
+  settingsNotice: "",
+  settingsError: "",
   loading: true,
   error: "",
 };
@@ -120,11 +123,13 @@ async function loadData(options = {}) {
   }
 
   try {
-    const [projects, loops, specs] = await Promise.all([
+    const [settings, projects, loops, specs] = await Promise.all([
+      fetchJson(`${API_BASE}/settings`),
       fetchJson(`${API_BASE}/projects`),
       fetchJson(`${API_BASE}/loops`),
       fetchJson(`${API_BASE}/specs`),
     ]);
+    state.settings = settings;
     state.projects = projects;
     state.loops = loops;
     state.specs = specs;
@@ -133,6 +138,15 @@ async function loadData(options = {}) {
   } finally {
     state.loading = false;
     render();
+  }
+}
+
+function updateChrome() {
+  const model = state.settings?.model || "gpt-5.5";
+  const modelElement = document.querySelector("#active-model");
+  if (modelElement) {
+    modelElement.textContent = `Model: ${model}`;
+    modelElement.title = `Active AI model: ${model}`;
   }
 }
 
@@ -234,6 +248,10 @@ function loopStatusType(status) {
 
 function loopStatusBadge(loop) {
   return badge("Loop status", loop.status || "unknown", loopStatusType(loop.status));
+}
+
+function modelForLoop(loop) {
+  return loop.model || "gpt-5.5";
 }
 
 function specStatusType(status) {
@@ -544,9 +562,76 @@ function renderStatusPanel() {
           <span class="status-dot" aria-hidden="true"></span>
           <span>Status: Alive</span>
         </div>
+        <div class="status-row status-row-secondary">
+          <span>Model: ${escapeHtml(state.settings?.model || "gpt-5.5")}</span>
+        </div>
         <p class="date-line">Date: <time>${escapeHtml(formatDate())}</time></p>
       </div>
     </section>
+  `;
+}
+
+function renderSettingsPage() {
+  if (state.loading) {
+    app.innerHTML = `<section class="loading-panel" aria-live="polite">Loading settings...</section>`;
+    return;
+  }
+
+  if (state.error) {
+    app.innerHTML = `
+      <section class="error-panel" role="alert">
+        <h1>Settings could not be loaded</h1>
+        <p>${escapeHtml(state.error)}</p>
+        <button type="button" class="button" data-action="refresh">Refresh</button>
+      </section>
+    `;
+    return;
+  }
+
+  app.innerHTML = `
+    <section class="detail-header">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Einstellungen</p>
+          <h1>Settings</h1>
+          <p class="summary">Aktives Modell: ${escapeHtml(state.settings?.model || "gpt-5.5")}</p>
+        </div>
+      </div>
+    </section>
+
+    <form class="spec-form settings-form" data-settings-form>
+      <div class="form-heading">
+        <div>
+          <p class="eyebrow">AI Model</p>
+          <h2>Loop-Modell</h2>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="form-field form-field-wide">
+          <span>AI Model</span>
+          <input
+            name="model"
+            required
+            maxlength="100"
+            pattern="[A-Za-z0-9][A-Za-z0-9._:-]{0,99}"
+            list="model-options"
+            value="${escapeHtml(state.settings?.model || "gpt-5.5")}"
+            placeholder="gpt-5.5"
+          >
+        </label>
+        <datalist id="model-options">
+          <option value="gpt-5.5"></option>
+          <option value="gpt-4.1"></option>
+          <option value="o3"></option>
+          <option value="o4-mini"></option>
+        </datalist>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="button">Speichern</button>
+      </div>
+      <p class="notice" aria-live="polite">${escapeHtml(state.settingsNotice)}</p>
+      <p class="form-error" aria-live="polite">${escapeHtml(state.settingsError)}</p>
+    </form>
   `;
 }
 
@@ -826,6 +911,7 @@ function renderLoopCard(loop) {
       </div>
       <div class="loop-card-meta">
         <span>${escapeHtml(loop.projectId)}</span>
+        <span>Model: ${escapeHtml(modelForLoop(loop))}</span>
         <span>Exit: ${escapeHtml(loop.exitCode ?? "offen")}</span>
         <span>${escapeHtml(loop.logLineCount || 0)} Log-Einträge</span>
       </div>
@@ -933,6 +1019,7 @@ function renderLoopDetailPage(loopId) {
         <span>Start: ${escapeHtml(formatTimestamp(loop.startedAt))}</span>
         <span>Ende: ${escapeHtml(formatTimestamp(loop.finishedAt))}</span>
         <span>Dauer: ${escapeHtml(formatDuration(loop.durationMs))}</span>
+        <span>Model: ${escapeHtml(modelForLoop(loop))}</span>
         <span>Exit: ${escapeHtml(loop.exitCode ?? "offen")}</span>
       </div>
     </section>
@@ -944,6 +1031,7 @@ function renderLoopDetailPage(loopId) {
 }
 
 function render() {
+  updateChrome();
   const currentRoute = routePath();
   if (loopStream.loopId && currentRoute !== `/loops/${loopStream.loopId}`) {
     closeLoopStream();
@@ -966,6 +1054,11 @@ function render() {
 
   if (currentRoute.startsWith("/specs/")) {
     renderSpecDetailPage(decodeURIComponent(currentRoute.replace("/specs/", "")));
+    return;
+  }
+
+  if (currentRoute === "/settings") {
+    renderSettingsPage();
     return;
   }
 
@@ -1072,6 +1165,36 @@ async function saveSpec(form) {
       state.error = error.message;
       render();
     }
+    submitButton.disabled = false;
+  }
+}
+
+async function saveSettings(form) {
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  state.settingsNotice = "";
+  state.settingsError = "";
+
+  const formData = new FormData(form);
+  const payload = {
+    model: formData.get("model"),
+  };
+
+  try {
+    const settings = await fetchJson(`${API_BASE}/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    state.settings = settings;
+    state.settingsNotice = "Gespeichert.";
+    render();
+  } catch (error) {
+    state.settingsError = error.message;
+    render();
+    const input = document.querySelector("form[data-settings-form] input[name='model']");
+    input?.focus({ preventScroll: true });
+  } finally {
     submitButton.disabled = false;
   }
 }
@@ -1221,6 +1344,13 @@ document.addEventListener("submit", (event) => {
   if (form) {
     event.preventDefault();
     saveSpec(form);
+    return;
+  }
+
+  const settingsForm = event.target.closest("form[data-settings-form]");
+  if (settingsForm) {
+    event.preventDefault();
+    saveSettings(settingsForm);
   }
 });
 
