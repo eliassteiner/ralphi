@@ -6,3 +6,4 @@
 2026-07-14: Completed 005-ai-model-config with persistent settings, model-aware loop starts/logs, and Settings UI/model displays.
 2026-07-14: Verified and marked 005-ai-model-config complete with full Wyna/DeepSeek provider config, pi-config import, loop env/logs, and UI route checks.
 2026-07-14: Completed 006-projekt-dashboard - full project dashboard with storyboard (Kanban 3 columns, drag&drop, delete), file editor (browser+textarea), AI terminal (chat with SSE streaming, system prompt, per-project context), Idea→Spec (AI-generated specs), responsive layout (3/2/1 columns), using configured Wyna/DeepSeek provider.
+2026-07-14: Completed 007-layout-optimierung - Jira-inspired redesign: full-width layout, compact project header bar (sticky), 2-column workspace (60/40), file tabs instead of sidebar list, smaller buttons (button-sm), responsive breakpoints.

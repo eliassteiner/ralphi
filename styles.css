@@ -127,9 +127,71 @@ textarea {
 }
 
 .main-view {
-  width: min(1180px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 30px clamp(18px, 4vw, 44px) 56px;
+  padding: 0 0 56px;
+}
+
+/* Jira-style project header - full width, sticky */
+.project-header {
+  position: sticky;
+  top: 70px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px clamp(18px, 4vw, 44px);
+  background: rgb(255 255 255 / 94%);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+}
+
+.project-header .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.project-header .back-link:hover {
+  color: var(--accent-dark);
+  background: var(--panel-soft);
+}
+
+.project-header .project-name {
+  font-size: 1.15rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.project-header .header-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.project-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.project-header .provider-pill {
+  padding: 3px 10px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .status-panel {
@@ -481,6 +543,17 @@ h3 {
 }
 
 .folder-link,
+.button-sm {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.button-sm.button-secondary {
+  padding: 5px 11px;
+}
+
 .text-link {
   color: var(--accent-dark);
   font-weight: 800;
@@ -800,33 +873,26 @@ dl {
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr) minmax(260px, 0.72fr);
-  grid-template-areas: "storyboard editor sidebar";
-  gap: 16px;
-  margin-top: 24px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1fr);
+  gap: 0;
+  min-height: calc(100vh - 130px);
   align-items: start;
 }
 
 .storyboard-pane {
-  grid-area: storyboard;
+  border-right: 1px solid var(--border);
+  min-height: calc(100vh - 130px);
 }
 
 .editor-pane {
-  grid-area: editor;
-}
-
-.side-pane {
-  grid-area: sidebar;
+  min-height: calc(100vh - 130px);
 }
 
 .dashboard-pane,
 .ai-terminal {
   min-width: 0;
-  padding: 18px;
+  padding: 16px clamp(16px, 2vw, 24px);
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 20px rgb(23 33 31 / 7%);
 }
 
 .pane-heading,
@@ -843,12 +909,21 @@ dl {
 .pane-heading,
 .terminal-header {
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+.pane-heading h2,
+.pane-heading .eyebrow {
+  display: inline;
+}
+
+.pane-heading .eyebrow {
+  margin-right: 8px;
 }
 
 .pane-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -857,115 +932,138 @@ dl {
 .new-file-form,
 .idea-form {
   display: grid;
-  gap: 12px;
-  margin: 0 0 14px;
-  padding: 14px;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 12px;
   background: var(--panel-soft);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .kanban-board {
   display: grid;
-  grid-template-columns: repeat(3, minmax(135px, 1fr));
-  gap: 12px;
-  min-height: 420px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  min-height: 400px;
 }
 
 .kanban-column {
   min-width: 0;
-  padding: 12px;
+  padding: 8px;
   background: #f8fafb;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .kanban-heading {
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+
+.kanban-heading h3 {
+  font-size: 0.85rem;
+  font-weight: 750;
 }
 
 .kanban-heading span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   color: var(--muted);
+  background: var(--panel-soft);
+  border-radius: 100px;
+  font-size: 0.78rem;
   font-weight: 850;
 }
 
 .kanban-cards {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   min-height: 72px;
   border-radius: 8px;
 }
 
 .kanban-cards.is-drop-target {
   outline: 2px dashed rgb(22 124 107 / 55%);
-  outline-offset: 4px;
+  outline-offset: 2px;
 }
 
 .story-card {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 6px;
+  padding: 10px;
   background: white;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
+  transition: box-shadow 0.15s;
 }
 
 .story-card:hover,
 .story-card:focus-within {
   border-color: rgb(22 124 107 / 45%);
+  box-shadow: 0 2px 8px rgb(23 33 31 / 8%);
 }
 
 .story-card.is-dragging {
-  opacity: 0.6;
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .story-card h3 {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .story-card p,
 .kanban-empty {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
 
 .story-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
+  margin-top: 2px;
 }
 
 .ready-toggle {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  gap: 6px;
-  padding: 5px 8px;
+  min-height: 26px;
+  gap: 4px;
+  padding: 4px 6px;
   color: var(--accent-dark);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 850;
   cursor: pointer;
+  border-radius: 4px;
+}
+
+.ready-toggle:hover {
+  background: var(--panel-soft);
 }
 
 .ready-toggle input {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   accent-color: var(--accent);
 }
 
 .tiny-button {
-  min-height: 30px;
-  padding: 5px 8px;
+  min-height: 26px;
+  padding: 4px 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: white;
   color: var(--accent-dark);
-  font-size: 0.76rem;
-  font-weight: 850;
+  font-size: 0.72rem;
+  font-weight: 750;
   cursor: pointer;
 }
 
@@ -978,7 +1076,7 @@ dl {
 .tiny-button:disabled {
   color: var(--muted);
   cursor: default;
-  opacity: 0.72;
+  opacity: 0.7;
 }
 
 .tiny-button-danger {
@@ -993,74 +1091,71 @@ dl {
 
 .editor-workspace {
   display: grid;
-  grid-template-columns: minmax(150px, 0.55fr) minmax(0, 1fr);
-  gap: 12px;
-  min-height: 580px;
+  grid-template-rows: auto 1fr;
+  gap: 10px;
 }
 
-.file-list {
-  display: grid;
-  align-content: start;
-  max-height: 580px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.file-list-item {
-  display: grid;
+/* Jira-style compact file tabs */
+.file-tabs {
+  display: flex;
   gap: 4px;
-  width: 100%;
-  padding: 10px;
-  border: 0;
+  overflow-x: auto;
+  padding: 0 0 4px;
   border-bottom: 1px solid var(--border);
-  background: white;
-  color: var(--ink);
-  text-align: left;
-  cursor: pointer;
 }
 
-.file-list-item:hover,
-.file-list-item:focus-visible,
-.file-list-item.is-active {
-  background: #eef4f8;
-  outline: none;
-}
-
-.file-list-item span,
-.file-editor-bar strong {
-  overflow: hidden;
-  font-size: 0.86rem;
-  font-weight: 850;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-list-item small,
-.file-editor-bar span {
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
   color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 800;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 4px 4px 0 0;
+}
+
+.file-tab:hover {
+  color: var(--ink);
+  background: var(--panel-soft);
+}
+
+.file-tab.is-active {
+  color: var(--ink);
+  border-color: var(--border);
+  border-bottom-color: var(--accent);
+  background: white;
+}
+
+.file-tab small {
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .file-editor {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
 .file-editor textarea {
   width: 100%;
-  min-height: 470px;
+  min-height: 400px;
   resize: vertical;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: #10201d;
   background: #fbfdfd;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.86rem;
-  line-height: 1.55;
+  line-height: 1.5;
   tab-size: 2;
 }
 
@@ -1069,26 +1164,21 @@ dl {
   outline: 3px solid rgb(22 124 107 / 16%);
 }
 
-.side-actions {
-  display: grid;
-  gap: 9px;
-  margin-top: 16px;
+.file-editor .file-path {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
-.side-history {
-  display: grid;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.side-history h3 {
-  color: var(--accent-dark);
+.file-editor .file-unsaved {
+  color: var(--amber);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .ai-terminal {
-  margin-top: 16px;
+  border-top: 1px solid var(--border);
   background: #101716;
-  border-color: #243331;
   color: #dbe8e5;
 }
 
@@ -1098,33 +1188,37 @@ dl {
 }
 
 .ai-terminal.is-collapsed {
-  padding-bottom: 14px;
+  padding: 8px 16px;
+}
+
+.ai-terminal.is-collapsed .terminal-header {
+  margin-bottom: 0;
 }
 
 .chat-log {
   display: grid;
-  gap: 12px;
-  max-height: 340px;
-  min-height: 180px;
+  gap: 10px;
+  max-height: 260px;
+  min-height: 120px;
   overflow: auto;
-  padding: 14px;
+  padding: 12px;
   background: #0b1110;
   border: 1px solid #243331;
-  border-radius: 8px;
+  border-radius: 6px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 0.88rem;
-  line-height: 1.55;
+  font-size: 0.86rem;
+  line-height: 1.5;
   white-space: pre-wrap;
 }
 
 .chat-message {
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
 .chat-message span {
   color: #8aa09b;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -1143,10 +1237,10 @@ dl {
 
 .chat-form {
   display: grid;
-  grid-template-columns: minmax(170px, 0.35fr) minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(140px, 0.3fr) 1fr auto;
+  gap: 8px;
   align-items: end;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .chat-form .form-error {
@@ -1155,6 +1249,7 @@ dl {
 
 .chat-form .form-field {
   color: #acc3be;
+  margin-bottom: 0;
 }
 
 .chat-form input,
@@ -1165,24 +1260,41 @@ dl {
 }
 
 .chat-input-field textarea {
-  min-height: 72px;
+  min-height: 60px;
 }
 
-@media (min-width: 761px) and (max-width: 1023px) {
-  .dashboard-layout {
-    grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.9fr);
-    grid-template-areas:
-      "storyboard sidebar"
-      "editor sidebar";
-  }
+.chat-form .form-field label {
+  display: block;
+  margin-bottom: 3px;
+  color: #8aa09b;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
 
-  .editor-workspace,
-  .chat-form {
+@media (max-width: 1023px) {
+  .dashboard-layout {
     grid-template-columns: 1fr;
   }
 
-  .file-list {
-    max-height: 300px;
+  .storyboard-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    min-height: 0;
+  }
+
+  .editor-pane {
+    min-height: 0;
+  }
+
+  .project-header {
+    top: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .chat-form {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1192,7 +1304,8 @@ dl {
   .section-heading,
   .detail-title-row,
   .pane-heading,
-  .terminal-header {
+  .terminal-header,
+  .project-header .header-actions {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1241,39 +1354,22 @@ dl {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-layout,
-  .editor-workspace,
   .chat-form {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-layout {
-    grid-template-areas:
-      "storyboard"
-      "editor"
-      "sidebar";
-  }
-
   .kanban-board {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
     min-height: 0;
   }
 
   .kanban-column {
-    padding: 8px;
-  }
-
-  .editor-workspace {
-    min-height: 0;
-  }
-
-  .file-list {
-    max-height: 260px;
+    padding: 6px;
   }
 
   .file-editor textarea {
-    min-height: 320px;
+    min-height: 260px;
   }
 
   .detail-actions {
@@ -1283,7 +1379,6 @@ dl {
   .detail-actions .button,
   .project-card-actions .button,
   .form-actions .button,
-  .side-actions .button,
   .pane-heading .button,
   .terminal-header .button,
   .pane-actions,

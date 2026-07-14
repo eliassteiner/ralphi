@@ -1154,40 +1154,38 @@ function renderStoryboard(project) {
   ];
 
   return `
-    <article class="dashboard-pane storyboard-pane">
-      <div class="pane-heading">
-        <div>
-          <p class="eyebrow">Storyboard</p>
-          <h2>Stories</h2>
-        </div>
-        <div class="pane-actions">
-          <button type="button" class="button button-secondary" data-action="open-idea-form">Idea→Spec</button>
-          <button type="button" class="button button-secondary" data-action="open-story-form">Neue Story</button>
-        </div>
+    <div class="pane-heading">
+      <div>
+        <span class="eyebrow">Storyboard</span>
+        <h2>Stories</h2>
       </div>
-      ${renderIdeaForm(project)}
-      ${renderStoryForm(project)}
-      <div class="kanban-board">
-        ${columns.map(([status, label]) => {
-          const columnStories = stories.filter((spec) => (spec.status || "pending") === status);
-          return `
-            <section class="kanban-column" aria-labelledby="kanban-${escapeHtml(status)}">
-              <div class="kanban-heading">
-                <h3 id="kanban-${escapeHtml(status)}">${escapeHtml(label)}</h3>
-                <span>${columnStories.length}</span>
-              </div>
-              <div class="kanban-cards" data-drop-status="${escapeHtml(status)}">
-                ${
-                  columnStories.length
-                    ? columnStories.map((spec) => renderStoryCard(project, spec)).join("")
-                    : `<p class="kanban-empty">Keine Stories</p>`
-                }
-              </div>
-            </section>
-          `;
-        }).join("")}
+      <div class="pane-actions">
+        <button type="button" class="button button-sm" data-action="open-idea-form">Idea→Spec</button>
+        <button type="button" class="button button-sm button-secondary" data-action="open-story-form">Neue Story</button>
       </div>
-    </article>
+    </div>
+    ${renderIdeaForm(project)}
+    ${renderStoryForm(project)}
+    <div class="kanban-board">
+      ${columns.map(([status, label]) => {
+        const columnStories = stories.filter((spec) => (spec.status || "pending") === status);
+        return `
+          <section class="kanban-column" aria-labelledby="kanban-${escapeHtml(status)}">
+            <div class="kanban-heading">
+              <h3 id="kanban-${escapeHtml(status)}">${escapeHtml(label)}</h3>
+              <span>${columnStories.length}</span>
+            </div>
+            <div class="kanban-cards" data-drop-status="${escapeHtml(status)}">
+              ${
+                columnStories.length
+                  ? columnStories.map((spec) => renderStoryCard(project, spec)).join("")
+                  : `<p class="kanban-empty">Keine Stories</p>`
+              }
+            </div>
+          </section>
+        `;
+      }).join("")}
+    </div>
   `;
 }
 
@@ -1241,67 +1239,72 @@ function renderNewFileForm(project) {
 function renderFileEditor(project) {
   const selectedSpec = selectedSpecForProject(project);
   return `
-    <article class="dashboard-pane editor-pane">
-      <div class="pane-heading">
-        <div>
-          <p class="eyebrow">Dateien</p>
-          <h2>Editor</h2>
+    <div class="pane-heading">
+      <div>
+        <span class="eyebrow">Editor</span>
+        <h2>Dateien</h2>
+      </div>
+      <div class="pane-actions">
+        <button type="button" class="button button-sm button-secondary" data-action="open-new-file">+ Neu</button>
+      </div>
+    </div>
+    ${renderNewFileForm(project)}
+    <div class="editor-workspace">
+      ${renderFileTabs(project)}
+      <form class="file-editor" data-file-editor-form data-project-id="${escapeHtml(project.id)}">
+        <div class="file-editor-bar">
+          <span class="file-path">${escapeHtml(state.selectedFilePath || "Keine Datei gewählt")}</span>
+          <span class="file-unsaved">${selectedFileIsDirty() ? "Ungespeichert" : ""}</span>
         </div>
-        <button type="button" class="button button-secondary" data-action="open-new-file">Neue Datei</button>
-      </div>
-      ${renderNewFileForm(project)}
-      <div class="editor-workspace">
-        ${renderFileBrowser(project)}
-        <form class="file-editor" data-file-editor-form data-project-id="${escapeHtml(project.id)}">
-          <div class="file-editor-bar">
-            <strong>${escapeHtml(state.selectedFilePath || "Keine Datei gewählt")}</strong>
-            <span>${selectedFileIsDirty() ? "Ungespeichert" : "Gespeichert"}</span>
-          </div>
-          <textarea
-            id="project-file-content"
-            name="content"
-            spellcheck="false"
-            ${state.selectedFilePath ? "" : "disabled"}
-          >${escapeHtml(state.selectedFileContent)}</textarea>
-          <div class="form-actions">
-            ${
-              state.selectedFilePath && /\.md$/i.test(state.selectedFilePath)
-                ? `<button type="button" class="button button-secondary" data-action="mark-file-done" data-project-id="${escapeHtml(project.id)}" ${selectedSpec?.status === "done" ? "disabled" : ""}>Als done markieren</button>`
-                : ""
-            }
-            <button type="submit" class="button" ${state.selectedFilePath ? "" : "disabled"}>Speichern</button>
-          </div>
-          <p class="notice" aria-live="polite">${escapeHtml(state.fileNotice)}</p>
-          <p class="form-error" aria-live="polite">${escapeHtml(state.fileError)}</p>
-        </form>
-      </div>
-    </article>
+        <textarea
+          id="project-file-content"
+          name="content"
+          spellcheck="false"
+          ${state.selectedFilePath ? "" : "disabled"}
+          placeholder="Wähle eine Datei aus dem Tab oben oder erstelle eine neue."
+        >${escapeHtml(state.selectedFileContent)}</textarea>
+        <div class="form-actions">
+          ${
+            state.selectedFilePath && /\.md$/i.test(state.selectedFilePath)
+              ? `<button type="button" class="button button-sm button-secondary" data-action="mark-file-done" data-project-id="${escapeHtml(project.id)}" ${selectedSpec?.status === "done" ? "disabled" : ""}>Als done</button>`
+              : ""
+          }
+          <button type="submit" class="button button-sm" ${state.selectedFilePath ? "" : "disabled"}>Speichern</button>
+        </div>
+        <p class="notice" aria-live="polite">${escapeHtml(state.fileNotice)}</p>
+        <p class="form-error" aria-live="polite">${escapeHtml(state.fileError)}</p>
+      </form>
+    </div>
   `;
 }
 
-function renderDashboardSide(project, loopButton) {
+function renderFileTabs(project) {
+  if (state.projectFilesLoading) {
+    return `<p class="muted-text">Lade Dateien...</p>`;
+  }
+  if (state.fileError && !state.projectFiles.length) {
+    return `<p class="form-error">${escapeHtml(state.fileError)}</p>`;
+  }
+  if (!state.projectFiles.length) {
+    return `<p class="muted-text">Keine editierbaren Dateien.</p>`;
+  }
+
   return `
-    <aside class="dashboard-pane side-pane">
-      <div class="pane-heading">
-        <div>
-          <p class="eyebrow">Projekt</p>
-          <h2>Status</h2>
-        </div>
-      </div>
-      <dl>
-        ${detailRow("Ordner", project.hostPath ? `<a class="text-link" href="${fileHref(project.hostPath)}">${escapeHtml(project.hostPath)}</a>` : "Nicht gefunden")}
-        ${detailRow("Status", escapeHtml(project.sourceStatus || project.status))}
-        ${detailRow("Ralph", escapeHtml(yesNo(project.ralph)))}
-        ${detailRow("Docker", escapeHtml(yesNo(project.docker)))}
-        ${detailRow("Proxy", escapeHtml(yesNo(project.proxy)))}
-        ${detailRow("Provider", escapeHtml(providerSummary()))}
-      </dl>
-      <div class="side-actions">${loopButton}</div>
-      <section class="side-history">
-        <h3>Loop-Historie</h3>
-        ${renderProjectLoopHistory(project)}
-      </section>
-    </aside>
+    <div class="file-tabs" role="tablist">
+      ${state.projectFiles.slice(0, 50).map((file) => `
+        <button
+          type="button"
+          class="file-tab ${file.path === state.selectedFilePath ? "is-active" : ""}"
+          data-action="open-project-file"
+          data-project-id="${escapeHtml(project.id)}"
+          data-path="${escapeHtml(file.path)}"
+          title="${escapeHtml(file.path)}"
+        >
+          ${escapeHtml(file.name)}
+          <small>${escapeHtml(file.extension.replace(".", ""))}</small>
+        </button>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -1319,14 +1322,15 @@ function renderChatMessages() {
 }
 
 function renderAiTerminal(project) {
+  const providerLabel = providerSummary();
   return `
-    <section class="ai-terminal ${state.terminalCollapsed ? "is-collapsed" : ""}">
-      <div class="terminal-header">
+    <div class="ai-terminal ${state.terminalCollapsed ? "is-collapsed" : ""}">
+      <div class="terminal-header" style="padding: ${state.terminalCollapsed ? "0" : "8px 16px 0"};">
         <div>
-          <p class="eyebrow">AI-Terminal</p>
-          <h2>${escapeHtml(providerSummary())}</h2>
+          <span class="eyebrow">AI-Terminal</span>
+          <h2>${escapeHtml(providerLabel)}</h2>
         </div>
-        <button type="button" class="button button-secondary" data-action="toggle-terminal">
+        <button type="button" class="button button-sm button-secondary" data-action="toggle-terminal">
           ${state.terminalCollapsed ? "Öffnen" : "Einklappen"}
         </button>
       </div>
@@ -1334,26 +1338,26 @@ function renderAiTerminal(project) {
         state.terminalCollapsed
           ? ""
           : `
-            <div class="chat-log" aria-live="polite">
-              ${state.chatLoading ? `<p class="log-muted">Chat wird geladen...</p>` : renderChatMessages()}
-            </div>
-            <form class="chat-form" data-chat-form data-project-id="${escapeHtml(project.id)}">
-              <label class="form-field">
-                <span>System-Prompt</span>
-                <input name="systemPrompt" value="${escapeHtml(state.chatSystemPrompt)}">
-              </label>
-              <label class="form-field chat-input-field">
-                <span>Nachricht</span>
-                <textarea name="message" rows="2" required ${state.chatStreaming ? "disabled" : ""}></textarea>
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="button" ${state.chatStreaming ? "disabled" : ""}>Senden</button>
+            <div style="padding: 8px 16px 12px;">
+              <div class="chat-log" aria-live="polite">
+                ${state.chatLoading ? `<p class="log-muted">Chat wird geladen...</p>` : renderChatMessages()}
               </div>
-              <p class="form-error" aria-live="polite">${escapeHtml(state.chatError)}</p>
-            </form>
+              <form class="chat-form" data-chat-form data-project-id="${escapeHtml(project.id)}">
+                <div class="form-field">
+                  <label for="chat-system-prompt">System-Prompt</label>
+                  <input id="chat-system-prompt" name="systemPrompt" value="${escapeHtml(state.chatSystemPrompt)}" placeholder="Du hilfst Specs zu schreiben">
+                </div>
+                <div class="form-field chat-input-field">
+                  <label for="chat-message">Nachricht</label>
+                  <textarea id="chat-message" name="message" rows="2" required ${state.chatStreaming ? "disabled" : ""} placeholder="Frag die AI..."></textarea>
+                </div>
+                <button type="submit" class="button button-sm" style="margin-bottom: 2px;" ${state.chatStreaming ? "disabled" : ""}>Senden</button>
+              </form>
+              <p class="form-error" aria-live="polite" style="padding: 0 16px;">${escapeHtml(state.chatError)}</p>
+            </div>
           `
       }
-    </section>
+    </div>
   `;
 }
 
@@ -1376,41 +1380,42 @@ function renderDetailPage(projectId) {
 
   ensureDashboardProject(project);
   const activeLoop = activeLoopForProject(project.id);
-  const loopButton = project.imported
-    ? activeLoop
-      ? `
-        <a class="button" href="${loopHref(activeLoop)}" data-route>Live-Log oeffnen</a>
-        <button type="button" class="button button-secondary" disabled>Loop läuft bereits</button>
-      `
-      : `<button type="button" class="button" data-action="start-loop" data-project-id="${escapeHtml(project.id)}">Ralph Loop starten</button>`
-    : `<button type="button" class="button" data-action="import" data-project-id="${escapeHtml(project.id)}">Importieren</button>`;
 
   app.innerHTML = `
-    <section class="detail-header">
-      <a class="text-link" href="${href("/projects")}" data-route>Back to projects</a>
-      <div class="detail-title-row">
-        <div>
-          <p class="eyebrow">Projekt-Dashboard</p>
-          <h1>${escapeHtml(project.name)}</h1>
-          <p class="summary">${escapeHtml(project.description || "Keine Beschreibung in PROJECTS.md")}</p>
-        </div>
-        <div class="detail-actions">
-          ${
-            project.imported
-              ? `<button type="button" class="button button-secondary" data-action="unwatch" data-project-id="${escapeHtml(project.id)}">Nicht mehr beobachten</button>`
-              : ""
-          }
-        </div>
+    <!-- Jira-style project header bar -->
+    <div class="project-header">
+      <a class="back-link" href="${href("/projects")}" data-route>← Projekte</a>
+      <span class="project-name">${escapeHtml(project.name)}</span>
+      ${badge(project.sourceStatus || project.status, project.sourceStatus || project.status, project.status === "Aktiv" ? "green" : "muted")}
+      <span class="badge-row">${capabilityBadges(project)}</span>
+      <span class="header-spacer"></span>
+      <div class="header-actions">
+        <span class="provider-pill">${escapeHtml(providerSummary())}</span>
+        ${project.imported
+          ? activeLoop
+            ? `
+              <a class="button button-sm" href="${loopHref(activeLoop)}" data-route>Live-Log</a>
+              <button type="button" class="button button-sm button-secondary" disabled>Läuft</button>
+            `
+            : `<button type="button" class="button button-sm" data-action="start-loop" data-project-id="${escapeHtml(project.id)}">Loop starten</button>`
+          : `<button type="button" class="button button-sm" data-action="import" data-project-id="${escapeHtml(project.id)}">Importieren</button>`
+        }
+        ${project.imported
+          ? `<button type="button" class="button button-sm button-secondary" data-action="unwatch" data-project-id="${escapeHtml(project.id)}">Unwatch</button>`
+          : ""
+        }
       </div>
-      <div class="badge-row">${capabilityBadges(project)}</div>
-      <p id="detail-notice" class="notice" aria-live="polite"></p>
-    </section>
+    </div>
 
-    <section class="dashboard-layout">
-      ${renderStoryboard(project)}
-      ${renderFileEditor(project)}
-      ${renderDashboardSide(project, loopButton)}
-    </section>
+    <!-- Main 2-column workspace -->
+    <div class="dashboard-layout">
+      <div class="dashboard-pane storyboard-pane">
+        ${renderStoryboard(project)}
+      </div>
+      <div class="dashboard-pane editor-pane">
+        ${renderFileEditor(project)}
+      </div>
+    </div>
     ${renderAiTerminal(project)}
   `;
 }
