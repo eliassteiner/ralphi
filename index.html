@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ralphi – Ralph Wiggum Loop Manager</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="status-panel" aria-labelledby="app-title">
+        <p class="eyebrow">Ralph Loop Control</p>
+        <h1 id="app-title">Ralphi – Ralph Wiggum Loop Manager</h1>
+        <div class="status-row" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Status: Alive</span>
+        </div>
+        <p class="date-line">Date: <time id="current-date"></time></p>
+        <p class="summary">
+          Ralph loops will be created, planned, monitored, and continued from here.
+        </p>
+      </section>
+    </main>
+    <script src="app.js" defer></script>
+  </body>
+</html>

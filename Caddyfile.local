@@ -1,0 +1,9 @@
+# Add this route to /Users/boot/Documents/vibes/vibes-proxy/Caddyfile
+# above the default Planed handle block.
+#
+# The shared Caddy proxy strips /ralphi before forwarding, so the
+# ralphi container can serve its static assets from /.
+
+handle_path /ralphi/* {
+	reverse_proxy ralphi:80
+}

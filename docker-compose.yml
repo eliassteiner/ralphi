@@ -1,0 +1,22 @@
+services:
+  ralphi:
+    build:
+      context: .
+    image: ralphi:local
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    networks:
+      vibes-proxy:
+        aliases:
+          - ralphi
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+networks:
+  vibes-proxy:
+    external: true
